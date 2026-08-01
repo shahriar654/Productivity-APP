@@ -74,7 +74,7 @@
                 <p class="text-sm text-indigo-700" id="insightText"></p>
             </div>
 
-            <!-- STUDY TRACKER -->
+            <!-- STUDY TRACKER (Strictly hidden for non-students) -->
             <div id="studyTrackerCard" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8" style="display: none;">
                 <h2 class="text-xl font-bold mb-4">📚 Daily Study / Subject Tracker</h2>
                 <div class="flex flex-col sm:flex-row gap-4 mb-6">
@@ -296,7 +296,7 @@
                     id: currentUser.id, 
                     name: currentUser.user_metadata?.name || 'User', 
                     age: currentUser.user_metadata?.age || 0, 
-                    occupation: currentUser.user_metadata?.occupation || 'student' 
+                    occupation: currentUser.user_metadata?.occupation || 'programmer' // Default to programmer if missing
                 }]).select().single();
                 
                 if (manualError) throw new Error("Failed to create profile: " + manualError.message);
@@ -339,7 +339,9 @@
             todayKey = getDateString(new Date());
             calDate = new Date();
             
-            // FIX: If name is missing in database, use "User" to prevent crash
+            // STRICT FIX: Always hide the study tracker by default before loading
+            document.getElementById('studyTrackerCard').style.display = 'none';
+
             const displayName = userProfile.name || 'User';
             document.getElementById('welcomeHeader').innerText = `Welcome, ${displayName.split(' ')[0]}!`;
             
@@ -357,15 +359,14 @@
             let insight = "";
             const occ = p.occupation ? p.occupation.toLowerCase() : '';
             
+            // STRICT FIX: ONLY show for exact match 'student'
             if (occ === 'student') {
                 insight = "Students have erratic schedules. Cluster 'Deep Work' in 2-hour blocks.";
                 document.getElementById('studyTrackerCard').style.display = 'block';
-            } else if (occ === 'programmer') {
+            } else {
+                // Hide for programmers and everyone else
                 insight = "Developers need flow states. Block 90 mins of uninterrupted 'Deep Work'.";
                 document.getElementById('studyTrackerCard').style.display = 'none';
-            } else {
-                insight = "Track your daily activities and deep work hours!";
-                document.getElementById('studyTrackerCard').style.display = 'block';
             }
 
             if (p.age && p.age < 25) insight += " Invest 1 hour into 'Health' daily.";
@@ -387,7 +388,11 @@
         }
 
         async function fetchSubjects() {
-            if (userProfile.occupation !== 'student') { studyData = []; return; }
+            // STRICT FIX: Do not fetch subjects if user is not a student
+            if (!userProfile || userProfile.occupation !== 'student') { 
+                studyData = []; 
+                return; 
+            }
             try {
                 const { data, error } = await sb.from('subjects').select('*').eq('user_id', currentUser.id);
                 if (error) throw error;

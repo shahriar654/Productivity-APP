@@ -74,7 +74,7 @@
                 <p class="text-sm text-indigo-700" id="insightText"></p>
             </div>
 
-            <!-- STUDY TRACKER (Strictly hidden for non-students) -->
+            <!-- STUDY TRACKER -->
             <div id="studyTrackerCard" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8" style="display: none;">
                 <h2 class="text-xl font-bold mb-4">📚 Daily Study / Subject Tracker</h2>
                 <div class="flex flex-col sm:flex-row gap-4 mb-6">
@@ -103,6 +103,7 @@
             <!-- Heatmap -->
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
                 <h2 class="text-xl font-bold mb-4">📊 See Your Most Productive or Less Productive Day</h2>
+                <p class="text-xs text-gray-400 mb-4">*Green is based on how many activities you check off (complete) each day.</p>
                 <div id="heatmapGrid" class="grid grid-cols-7 gap-1.5 mb-4"></div>
                 <div class="mt-4 flex items-center justify-end gap-2 text-xs text-gray-400">
                     <span>Less</span>
@@ -296,7 +297,7 @@
                     id: currentUser.id, 
                     name: currentUser.user_metadata?.name || 'User', 
                     age: currentUser.user_metadata?.age || 0, 
-                    occupation: currentUser.user_metadata?.occupation || 'programmer' // Default to programmer if missing
+                    occupation: currentUser.user_metadata?.occupation || 'programmer' 
                 }]).select().single();
                 
                 if (manualError) throw new Error("Failed to create profile: " + manualError.message);
@@ -339,7 +340,6 @@
             todayKey = getDateString(new Date());
             calDate = new Date();
             
-            // STRICT FIX: Always hide the study tracker by default before loading
             document.getElementById('studyTrackerCard').style.display = 'none';
 
             const displayName = userProfile.name || 'User';
@@ -359,12 +359,10 @@
             let insight = "";
             const occ = p.occupation ? p.occupation.toLowerCase() : '';
             
-            // STRICT FIX: ONLY show for exact match 'student'
             if (occ === 'student') {
                 insight = "Students have erratic schedules. Cluster 'Deep Work' in 2-hour blocks.";
                 document.getElementById('studyTrackerCard').style.display = 'block';
             } else {
-                // Hide for programmers and everyone else
                 insight = "Developers need flow states. Block 90 mins of uninterrupted 'Deep Work'.";
                 document.getElementById('studyTrackerCard').style.display = 'none';
             }
@@ -388,7 +386,6 @@
         }
 
         async function fetchSubjects() {
-            // STRICT FIX: Do not fetch subjects if user is not a student
             if (!userProfile || userProfile.occupation !== 'student') { 
                 studyData = []; 
                 return; 
@@ -429,13 +426,45 @@
             if (!name) return alert('Enter an activity name.');
 
             try {
-                const { data, error } = await sb.from('activities').insert([{ user_id: currentUser.id, date: todayKey, name, category, duration }]).select().single();
+                // Insert with completed: false by default
+                const { data, error } = await sb.from('activities').insert([{ 
+                    user_id: currentUser.id, 
+                    date: todayKey, 
+                    name, 
+                    category, 
+                    duration,
+                    completed: false 
+                }]).select().single();
+                
                 if (error) throw error;
                 activities.push(data);
                 history[todayKey] = activities;
                 renderAll();
                 if (!isFromTimer) { document.getElementById('activityName').value = ''; document.getElementById('activityDuration').value = '0.5'; }
             } catch (e) { alert("Error saving activity: " + e.message); }
+        }
+
+        // NEW: Toggle Completion Checkbox
+        async function toggleComplete(index) {
+            const act = activities[index];
+            const newStatus = !act.completed;
+            
+            // Optimistic UI update (change visually immediately)
+            act.completed = newStatus;
+            renderLog();
+            renderCalendar();
+            renderHeatmap();
+
+            try {
+                // Save to Supabase
+                await sb.from('activities').update({ completed: newStatus }).eq('id', act.id);
+            } catch (e) { 
+                alert("Error updating status: " + e.message);
+                act.completed = !newStatus; // Revert if error
+                renderLog();
+                renderCalendar();
+                renderHeatmap();
+            }
         }
 
         async function deleteActivity(index) {
@@ -575,13 +604,30 @@
             }
         }
 
+        // UPDATED: Now includes checkbox and line-through styling
         function renderLog() {
             const log = document.getElementById('activityLog');
             if (!activities.length) return log.innerHTML = '<p class="text-gray-400 text-center py-4">No activities yet.</p>';
             log.innerHTML = '';
             activities.forEach((act, i) => {
-                const item = document.createElement('div'); item.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg';
-                item.innerHTML = `<div class="flex items-center gap-3"><span class="w-4 h-4 rounded-full ${categories[act.category].color}"></span><div><p class="font-semibold">${act.name}</p><p class="text-xs text-gray-500">${categories[act.category].name}</p></div></div><div class="flex items-center gap-4"><span class="font-medium">${act.duration}h</span><button onclick="deleteActivity(${i})" class="text-red-400 text-sm cursor-pointer">Delete</button></div>`;
+                const item = document.createElement('div'); 
+                item.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg';
+                
+                const textStrike = act.completed ? 'line-through text-gray-400' : 'text-gray-800';
+                
+                item.innerHTML = `
+                    <div class="flex items-center gap-3 flex-grow">
+                        <input type="checkbox" ${act.completed ? 'checked' : ''} onchange="toggleComplete(${i})" class="w-5 h-5 cursor-pointer accent-indigo-600 flex-shrink-0">
+                        <span class="w-4 h-4 rounded-full ${categories[act.category].color} flex-shrink-0"></span>
+                        <div class="flex-grow min-w-0">
+                            <p class="font-semibold ${textStrike} truncate">${act.name}</p>
+                            <p class="text-xs text-gray-500">${categories[act.category].name}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4 flex-shrink-0 ml-2">
+                        <span class="font-medium text-gray-700 text-sm">${act.duration}h</span>
+                        <button onclick="deleteActivity(${i})" class="text-red-400 hover:text-red-600 text-sm cursor-pointer">Delete</button>
+                    </div>`;
                 log.appendChild(item);
             });
         }
@@ -622,6 +668,13 @@
 
         function changeMonth(d) { calDate.setMonth(calDate.getMonth() + d); renderCalendar(); renderHeatmap(); }
         
+        // NEW HELPER: Calculate completion percentage
+        function getCompletionPercent(dayActs) {
+            if (!dayActs || dayActs.length === 0) return 0;
+            const completed = dayActs.filter(a => a.completed).length;
+            return (completed / dayActs.length) * 100;
+        }
+
         function renderCalendar() {
             const grid = document.getElementById('calendarGrid'); grid.innerHTML = '';
             document.getElementById('calMonthLabel').innerText = calDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -630,9 +683,17 @@
             for (let i = 0; i < f; i++) { const e = document.createElement('div'); e.className = 'aspect-square'; grid.appendChild(e); }
             for (let day = 1; day <= d; day++) {
                 const ds = getDateString(new Date(calDate.getFullYear(), calDate.getMonth(), day));
-                const acts = history[ds] || []; let h = 0; acts.forEach(a => { if (a.category === 'deep') h += a.duration; });
+                const acts = history[ds] || []; 
+                
+                // Use completion percentage instead of deep work hours
+                const percent = getCompletionPercent(acts);
+                
                 let c = 'bg-gray-100 text-gray-400';
-                if (h > 0 && h < 2) c = 'bg-green-200 text-green-800'; else if (h >= 2 && h < 4) c = 'bg-green-400 text-white'; else if (h >= 4 && h < 6) c = 'bg-green-600 text-white'; else if (h >= 6) c = 'bg-green-800 text-white';
+                if (percent > 0 && percent <= 25) c = 'bg-green-200 text-green-800'; 
+                else if (percent > 25 && percent <= 50) c = 'bg-green-400 text-white'; 
+                else if (percent > 50 && percent < 100) c = 'bg-green-600 text-white'; 
+                else if (percent === 100) c = 'bg-green-800 text-white';
+                
                 const cell = document.createElement('div'); cell.className = `aspect-square rounded-md flex items-center justify-center text-xs font-bold ${c}`; cell.innerText = day; grid.appendChild(cell);
             }
         }
@@ -656,18 +717,19 @@
             for (let day = 1; day <= daysInMonth; day++) {
                 const ds = getDateString(new Date(year, month, day));
                 const acts = history[ds] || []; 
-                let h = 0; 
-                acts.forEach(a => { if (a.category === 'deep') h += a.duration; });
+                
+                // Use completion percentage instead of deep work hours
+                const percent = getCompletionPercent(acts);
                 
                 let c = 'bg-gray-100 border border-gray-200';
-                if (h > 0 && h < 2) c = 'bg-green-200';
-                else if (h >= 2 && h < 4) c = 'bg-green-400';
-                else if (h >= 4 && h < 6) c = 'bg-green-600';
-                else if (h >= 6) c = 'bg-green-800';
+                if (percent > 0 && percent <= 25) c = 'bg-green-200';
+                else if (percent > 25 && percent <= 50) c = 'bg-green-400';
+                else if (percent > 50 && percent < 100) c = 'bg-green-600';
+                else if (percent === 100) c = 'bg-green-800';
                 
                 const cell = document.createElement('div');
                 cell.className = `w-full aspect-square rounded-sm ${c}`;
-                cell.title = `${ds}: ${h.toFixed(1)} hrs Deep Work`;
+                cell.title = `${ds}: ${Math.round(percent)}% Completed`;
                 grid.appendChild(cell);
             }
         }

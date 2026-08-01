@@ -338,7 +338,11 @@
         async function loadDashboard() {
             todayKey = getDateString(new Date());
             calDate = new Date();
-            document.getElementById('welcomeHeader').innerText = `Welcome, ${userProfile.name.split(' ')[0]}!`;
+            
+            // FIX: If name is missing in database, use "User" to prevent crash
+            const displayName = userProfile.name || 'User';
+            document.getElementById('welcomeHeader').innerText = `Welcome, ${displayName.split(' ')[0]}!`;
+            
             document.getElementById('currentDate').innerText = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
             
             generateInsight();
@@ -360,9 +364,8 @@
                 insight = "Developers need flow states. Block 90 mins of uninterrupted 'Deep Work'.";
                 document.getElementById('studyTrackerCard').style.display = 'none';
             } else {
-                // Fallback if occupation is missing (e.g., old accounts)
                 insight = "Track your daily activities and deep work hours!";
-                document.getElementById('studyTrackerCard').style.display = 'block'; // Show by default
+                document.getElementById('studyTrackerCard').style.display = 'block';
             }
 
             if (p.age && p.age < 25) insight += " Invest 1 hour into 'Health' daily.";

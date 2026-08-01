@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>24-Hour Cloud Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container mx-auto max-w-4xl p-4 sm:p-8">
+
+        <!-- LOCAL FILE WARNING -->
+        <div id="fileWarning" class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl mb-4" style="display: none;">
+            <strong>⚠️ Local File Detected!</strong> 
+            <p>You are opening this file directly (file:///). Cloud logins will NOT work like this. Please use VS Code's "Live Server" extension to open this file via <code>http://127.0.0.1:5500</code>.</p>
+        </div>
+
+        <!-- 1. LOGIN SCREEN -->
+        <div id="profileScreen" class="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 max-w-md mx-auto mt-10" style="display: block;">
+            <h1 class="text-3xl font-bold text-indigo-600 mb-2">Welcome!</h1>
+            <p class="text-gray-500 mb-6">Sign up or log in to track your day.</p>
+            
+            <div class="space-y-4">
+                <div class="flex gap-4 mb-4">
+                    <button id="tabSignup" onclick="switchTab('signup')" class="flex-1 py-2 border-b-2 border-indigo-600 font-semibold text-indigo-600">Sign Up</button>
+                    <button id="tabLogin" onclick="switchTab('login')" class="flex-1 py-2 border-b-2 border-transparent font-semibold text-gray-400">Log In</button>
+                </div>
+
+                <div id="signupFields" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                        <input type="text" id="nameInput" placeholder="John Doe" class="w-full p-2 border rounded-lg outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Age</label>
+                        <input type="number" id="ageInput" min="10" max="100" placeholder="28" class="w-full p-2 border rounded-lg outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Occupation</label>
+                        <select id="occupationInput" class="w-full p-2 border rounded-lg outline-none">
+                            <option value="student">Student</option>
+                            <option value="programmer">Programmer / Developer</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="emailInput" placeholder="you@example.com" class="w-full p-2 border rounded-lg outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <input type="password" id="passwordInput" placeholder="********" class="w-full p-2 border rounded-lg outline-none">
+                </div>
+
+                <button onclick="handleAuth()" id="authBtn" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold hover:bg-indigo-700 cursor-pointer">Sign Up & Start Tracking</button>
+            </div>
+        </div>
+
+        <!-- 2. DASHBOARD SCREEN -->
+        <div id="dashboardScreen" style="display: none;">
+            <header class="mb-8 flex justify-between items-center">
+                <div>
+                    <h1 class="text-3xl font-bold text-indigo-600" id="welcomeHeader">Tracker</h1>
+                    <p class="text-gray-500" id="currentDate"></p>
+                </div>
+                <button onclick="logout()" class="text-sm text-gray-500 hover:text-red-500 font-medium cursor-pointer">Logout</button>
+            </header>
+
+            <div class="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl mb-8">
+                <h3 class="font-bold text-indigo-800 mb-1">💡 Insight</h3>
+                <p class="text-sm text-indigo-700" id="insightText"></p>
+            </div>
+
+            <!-- STUDY TRACKER -->
+            <div id="studyTrackerCard" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8" style="display: none;">
+                <h2 class="text-xl font-bold mb-4">📚 Daily Study / Subject Tracker</h2>
+                <div class="flex flex-col sm:flex-row gap-4 mb-6">
+                    <input type="text" id="newSubjectName" placeholder="Add subject (e.g., Math, Physics)" class="flex-1 p-2 border rounded-lg outline-none">
+                    <button onclick="addSubject()" class="bg-indigo-100 text-indigo-600 px-4 py-2 rounded-lg font-semibold cursor-pointer">Add Subject</button>
+                </div>
+                <div id="subjectList" class="space-y-4"></div>
+            </div>
+
+            <!-- Monthly Calendar -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold">📅 Monthly Productivity</h2>
+                    <div class="flex gap-2 items-center">
+                        <button onclick="changeMonth(-1)" class="font-bold text-lg px-2 cursor-pointer">&lt;</button>
+                        <span id="calMonthLabel" class="font-medium text-gray-700 w-32 text-center"></span>
+                        <button onclick="changeMonth(1)" class="font-bold text-lg px-2 cursor-pointer">&gt;</button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-7 gap-2 text-center text-xs text-gray-400 mb-2">
+                    <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                </div>
+                <div id="calendarGrid" class="grid grid-cols-7 gap-2"></div>
+            </div>
+
+            <!-- Heatmap -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
+                <h2 class="text-xl font-bold mb-4">📊 See Your Most Productive or Less Productive Day</h2>
+                <div id="heatmapGrid" class="grid grid-cols-7 gap-1.5 mb-4"></div>
+                <div class="mt-4 flex items-center justify-end gap-2 text-xs text-gray-400">
+                    <span>Less</span>
+                    <div class="w-3 h-3 rounded-sm bg-gray-100 border border-gray-200"></div>
+                    <div class="w-3 h-3 rounded-sm bg-green-200"></div>
+                    <div class="w-3 h-3 rounded-sm bg-green-400"></div>
+                    <div class="w-3 h-3 rounded-sm bg-green-600"></div>
+                    <div class="w-3 h-3 rounded-sm bg-green-800"></div>
+                    <span>More</span>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
+                <h2 class="text-xl font-bold mb-4">Your Day (24 Hours)</h2>
+                <div class="w-full h-8 bg-gray-100 rounded-full overflow-hidden flex mb-4" id="timelineBar"></div>
+                <div class="mt-6 grid grid-cols-2 sm:grid-cols-3 gap-4" id="statsSummary"></div>
+            </div>
+
+            <div id="liveTimerCard" class="bg-indigo-600 text-white p-6 rounded-2xl shadow-sm mb-8 text-center" style="display: none;">
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="text-lg font-bold opacity-90">⏱️ Timer Running</h2>
+                    <button onclick="cancelTimer()" class="text-xs bg-indigo-500 px-3 py-1 rounded-full cursor-pointer">Cancel</button>
+                </div>
+                <p id="timerActivityName" class="text-xl font-bold mb-3"></p>
+                <div id="timerDisplay" class="text-5xl font-bold font-mono mb-4">00:00:00</div>
+                <div class="w-full h-2 bg-indigo-300 rounded-full overflow-hidden">
+                    <div id="timerProgressBar" class="h-full bg-white" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
+                <h2 class="text-xl font-bold mb-4">Log an Activity</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm mb-1">Activity</label>
+                        <input type="text" id="activityName" placeholder="Coding" class="w-full p-2 border rounded-lg outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm mb-1">Category</label>
+                        <select id="activityCategory" class="w-full p-2 border rounded-lg outline-none">
+                            <option value="sleep">Sleep</option>
+                            <option value="deep">Deep Work</option>
+                            <option value="shallow">Shallow Work</option>
+                            <option value="health">Health</option>
+                            <option value="leisure">Leisure</option>
+                            <option value="social">Social</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm mb-1">Duration (Hours)</label>
+                        <input type="number" id="activityDuration" min="0.016" max="24" step="0.016" value="0.5" class="w-full p-2 border rounded-lg outline-none">
+                    </div>
+                </div>
+                <div class="mt-4 flex gap-4">
+                    <button onclick="startTimer()" class="flex-1 bg-indigo-600 text-white py-2 rounded-lg font-semibold cursor-pointer">Start Timer</button>
+                    <button onclick="addActivityManual(false)" class="flex-1 bg-gray-200 py-2 rounded-lg font-semibold cursor-pointer">Add Manually</button>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold">Activity Log</h2>
+                    <button onclick="clearDay()" class="text-sm text-red-500 cursor-pointer">Clear Day</button>
+                </div>
+                <div id="activityLog" class="space-y-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- CHECK FOR LOCAL FILE ---
+        if (window.location.protocol === "file:") {
+            document.getElementById('fileWarning').style.display = 'block';
+        }
+
+        // --- SUPABASE INITIALIZATION ---
+        const SUPABASE_URL = 'https://qrexhvbjtlfxxojztsxv.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFyZXhodmJqdGxmeHhvanp0c3h2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0ODgwMTEsImV4cCI6MjEwMTA2NDAxMX0.c-kA_O2bDXjOJX2PprsuhN6HU-mYcp45QSlldkr6UhY';
+        const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let currentUser = null;
+        let userProfile = null;
+        let activities = []; 
+        let history = {};    
+        let todayKey = "";
+        let calDate = new Date();
+        let studyData = [];
+        let authMode = 'signup';
+        let pendingActivity = null; 
+
+        const categories = {
+            sleep: { name: 'Sleep', color: 'bg-blue-500', text: 'text-blue-500' },
+            deep: { name: 'Deep Work', color: 'bg-green-500', text: 'text-green-500' },
+            shallow: { name: 'Shallow Work', color: 'bg-yellow-500', text: 'text-yellow-600' },
+            health: { name: 'Health', color: 'bg-orange-500', text: 'text-orange-500' },
+            leisure: { name: 'Leisure', color: 'bg-red-500', text: 'text-red-500' },
+            social: { name: 'Social', color: 'bg-purple-500', text: 'text-purple-500' }
+        };
+
+        function getDateString(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+
+        function showDashboard() {
+            document.getElementById('profileScreen').style.display = 'none';
+            document.getElementById('dashboardScreen').style.display = 'block';
+        }
+
+        function showLogin() {
+            document.getElementById('profileScreen').style.display = 'block';
+            document.getElementById('dashboardScreen').style.display = 'none';
+        }
+
+        // --- AUTH UI ---
+        function switchTab(mode) {
+            authMode = mode;
+            const signupFields = document.getElementById('signupFields');
+            const authBtn = document.getElementById('authBtn');
+            if (mode === 'signup') {
+                signupFields.style.display = 'block';
+                authBtn.innerText = 'Sign Up & Start Tracking';
+                document.getElementById('tabSignup').className = "flex-1 py-2 border-b-2 border-indigo-600 font-semibold text-indigo-600";
+                document.getElementById('tabLogin').className = "flex-1 py-2 border-b-2 border-transparent font-semibold text-gray-400";
+            } else {
+                signupFields.style.display = 'none';
+                authBtn.innerText = 'Log In';
+                document.getElementById('tabLogin').className = "flex-1 py-2 border-b-2 border-indigo-600 font-semibold text-indigo-600";
+                document.getElementById('tabSignup').className = "flex-1 py-2 border-b-2 border-transparent font-semibold text-gray-400";
+            }
+        }
+
+        // --- MAIN AUTH LOGIC ---
+        async function handleAuth() {
+            const email = document.getElementById('emailInput').value.trim();
+            const password = document.getElementById('passwordInput').value;
+            if (!email || !password) return alert("Please enter both email and password.");
+
+            const btn = document.getElementById('authBtn');
+            btn.innerText = "Processing...";
+            btn.disabled = true;
+
+            try {
+                let userData = null;
+
+                if (authMode === 'signup') {
+                    const name = document.getElementById('nameInput').value.trim();
+                    const age = document.getElementById('ageInput').value;
+                    if (!name || !age) throw new Error("Name and Age are required.");
+                    
+                    const { data: signUpData, error: signUpError } = await sb.auth.signUp({
+                        email, password,
+                        options: { data: { name, age: parseInt(age), occupation: document.getElementById('occupationInput').value } }
+                    });
+
+                    if (signUpError && !signUpError.message.includes("already registered")) {
+                        throw signUpError;
+                    }
+
+                    const { data: signInData, error: signInError } = await sb.auth.signInWithPassword({ email, password });
+                    if (signInError) throw signInError;
+                    
+                    userData = signInData.user;
+
+                } else {
+                    const { data: signInData, error: signInError } = await sb.auth.signInWithPassword({ email, password });
+                    if (signInError) throw signInError;
+                    userData = signInData.user;
+                }
+
+                if (!userData) throw new Error("Login failed. No user data returned. (Are you opening this as a file:///?)");
+                
+                currentUser = userData;
+                await loadUserProfileAndDashboard();
+
+            } catch (err) {
+                alert("ERROR: " + (err.message || "An unknown error occurred"));
+                console.error("Auth Error:", err);
+                btn.innerText = authMode === 'signup' ? "Sign Up & Start Tracking" : "Log In";
+                btn.disabled = false;
+            }
+        }
+
+        async function loadUserProfileAndDashboard() {
+            let profileData = null;
+            for (let i = 0; i < 5; i++) {
+                const { data, error } = await sb.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+                if (data) { profileData = data; break; }
+                await new Promise(r => setTimeout(r, 500));
+            }
+
+            if (!profileData) {
+                const { data: manualProfile, error: manualError } = await sb.from('profiles').insert([{ 
+                    id: currentUser.id, 
+                    name: currentUser.user_metadata?.name || 'User', 
+                    age: currentUser.user_metadata?.age || 0, 
+                    occupation: currentUser.user_metadata?.occupation || 'student' 
+                }]).select().single();
+                
+                if (manualError) throw new Error("Failed to create profile: " + manualError.message);
+                profileData = manualProfile;
+            }
+
+            userProfile = profileData;
+            showDashboard();
+            await loadDashboard();
+            
+            const btn = document.getElementById('authBtn');
+            btn.innerText = authMode === 'signup' ? "Sign Up & Start Tracking" : "Log In";
+            btn.disabled = false;
+        }
+
+        async function logout() {
+            await sb.auth.signOut();
+            currentUser = null; userProfile = null;
+            showLogin();
+            const btn = document.getElementById('authBtn');
+            btn.innerText = authMode === 'signup' ? "Sign Up & Start Tracking" : "Log In";
+            btn.disabled = false;
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const { data: { session } } = await sb.auth.getSession();
+            if (session) {
+                currentUser = session.user;
+                const { data } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
+                if (data) {
+                    userProfile = data;
+                    showDashboard();
+                    await loadDashboard();
+                }
+            }
+        });
+
+        // --- DASHBOARD LOGIC ---
+        async function loadDashboard() {
+            todayKey = getDateString(new Date());
+            calDate = new Date();
+            document.getElementById('welcomeHeader').innerText = `Welcome, ${userProfile.name.split(' ')[0]}!`;
+            document.getElementById('currentDate').innerText = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+            
+            generateInsight();
+            await fetchActivities();
+            await fetchSubjects();
+            renderAll();
+        }
+
+        function generateInsight() {
+            if(!userProfile) return;
+            const p = userProfile;
+            let insight = "";
+            const occ = p.occupation ? p.occupation.toLowerCase() : '';
+            
+            if (occ === 'student') {
+                insight = "Students have erratic schedules. Cluster 'Deep Work' in 2-hour blocks.";
+                document.getElementById('studyTrackerCard').style.display = 'block';
+            } else if (occ === 'programmer') {
+                insight = "Developers need flow states. Block 90 mins of uninterrupted 'Deep Work'.";
+                document.getElementById('studyTrackerCard').style.display = 'none';
+            } else {
+                // Fallback if occupation is missing (e.g., old accounts)
+                insight = "Track your daily activities and deep work hours!";
+                document.getElementById('studyTrackerCard').style.display = 'block'; // Show by default
+            }
+
+            if (p.age && p.age < 25) insight += " Invest 1 hour into 'Health' daily.";
+            document.getElementById('insightText').innerText = insight;
+        }
+
+        // --- DATA FETCHING ---
+        async function fetchActivities() {
+            try {
+                const { data, error } = await sb.from('activities').select('*').eq('user_id', currentUser.id);
+                if (error) throw error;
+                history = {};
+                data.forEach(act => {
+                    if (!history[act.date]) history[act.date] = [];
+                    history[act.date].push(act);
+                });
+                activities = history[todayKey] || [];
+            } catch (e) { console.error("Fetch activities error:", e); history = {}; activities = []; }
+        }
+
+        async function fetchSubjects() {
+            if (userProfile.occupation !== 'student') { studyData = []; return; }
+            try {
+                const { data, error } = await sb.from('subjects').select('*').eq('user_id', currentUser.id);
+                if (error) throw error;
+                studyData = data || [];
+                
+                let needsUpdate = false;
+                for (let sub of studyData) {
+                    if (sub.last_updated !== todayKey) {
+                        sub.daily = 0; sub.last_updated = todayKey; needsUpdate = true;
+                    }
+                }
+                if (needsUpdate) {
+                    for (let sub of studyData) {
+                        await sb.from('subjects').update({ daily: 0, last_updated: todayKey }).eq('id', sub.id);
+                    }
+                }
+            } catch (e) { console.error("Fetch subjects error:", e); studyData = []; }
+        }
+
+        // --- ACTIVITIES ---
+        async function addActivityManual(isFromTimer) {
+            let name, category, duration;
+
+            if (isFromTimer && pendingActivity) {
+                name = pendingActivity.name;
+                category = pendingActivity.category;
+                duration = pendingActivity.duration;
+            } else {
+                name = document.getElementById('activityName').value.trim();
+                category = document.getElementById('activityCategory').value;
+                duration = parseFloat(document.getElementById('activityDuration').value);
+            }
+
+            if (!name) return alert('Enter an activity name.');
+
+            try {
+                const { data, error } = await sb.from('activities').insert([{ user_id: currentUser.id, date: todayKey, name, category, duration }]).select().single();
+                if (error) throw error;
+                activities.push(data);
+                history[todayKey] = activities;
+                renderAll();
+                if (!isFromTimer) { document.getElementById('activityName').value = ''; document.getElementById('activityDuration').value = '0.5'; }
+            } catch (e) { alert("Error saving activity: " + e.message); }
+        }
+
+        async function deleteActivity(index) {
+            const act = activities[index];
+            try {
+                await sb.from('activities').delete().eq('id', act.id);
+                activities.splice(index, 1);
+                renderAll();
+            } catch (e) { alert("Error deleting: " + e.message); }
+        }
+
+        async function clearDay() {
+            if (!confirm('Clear all activities for today?')) return;
+            try {
+                for (let act of activities) { await sb.from('activities').delete().eq('id', act.id); }
+                activities = []; history[todayKey] = [];
+                renderAll();
+            } catch (e) { alert("Error clearing day: " + e.message); }
+        }
+
+        // --- SUBJECTS ---
+        async function addSubject() {
+            const name = document.getElementById('newSubjectName').value.trim();
+            if (!name) return alert("Enter a subject name");
+            try {
+                const { data, error } = await sb.from('subjects').insert([{ user_id: currentUser.id, name, daily: 0, lifetime: 0, last_updated: todayKey }]).select().single();
+                if (error) throw error;
+                studyData.push(data);
+                document.getElementById('newSubjectName').value = '';
+                renderStudyTracker();
+            } catch (e) { alert("Error adding subject: " + e.message); }
+        }
+
+        async function logStudy(index) {
+            const input = document.getElementById(`studyInput_${index}`);
+            const amount = parseInt(input.value);
+            if (!amount || amount <= 0) return alert("Invalid number");
+            const sub = studyData[index];
+            sub.daily += amount; sub.lifetime += amount;
+            try {
+                await sb.from('subjects').update({ daily: sub.daily, lifetime: sub.lifetime, last_updated: todayKey }).eq('id', sub.id);
+                renderStudyTracker();
+            } catch (e) { alert("Error logging study: " + e.message); }
+        }
+
+        async function deleteSubject(index) {
+            const sub = studyData[index];
+            try {
+                await sb.from('subjects').delete().eq('id', sub.id);
+                studyData.splice(index, 1);
+                renderStudyTracker();
+            } catch (e) { alert("Error deleting subject: " + e.message); }
+        }
+
+        // --- TIMER LOGIC ---
+        let timerInterval = null, totalTimerSeconds = 0, remainingSeconds = 0;
+        
+        function startTimer() {
+            const name = document.getElementById('activityName').value.trim();
+            const category = document.getElementById('activityCategory').value;
+            const durationHours = parseFloat(document.getElementById('activityDuration').value);
+            if (!name || !durationHours || durationHours <= 0) return alert("Enter name and duration");
+            
+            pendingActivity = { name, category, duration: durationHours };
+            triggerTimerUI();
+        }
+
+        function startSubjectTimer(index) {
+            const sub = studyData[index];
+            const durationDropdown = document.getElementById(`studyTimerDur_${index}`);
+            const durationHours = parseFloat(durationDropdown.value);
+            
+            pendingActivity = { name: `Study: ${sub.name}`, category: 'deep', duration: durationHours };
+            triggerTimerUI();
+        }
+
+        function triggerTimerUI() {
+            if ("Notification" in window && Notification.permission === 'default') Notification.requestPermission();
+            totalTimerSeconds = Math.round(pendingActivity.duration * 3600);
+            remainingSeconds = totalTimerSeconds;
+            document.getElementById('liveTimerCard').style.display = 'block';
+            document.getElementById('timerActivityName').innerText = `${pendingActivity.name} (${categories[pendingActivity.category].name})`;
+            updateTimerDisplay();
+            timerInterval = setInterval(tickTimer, 1000);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function tickTimer() { remainingSeconds--; if (remainingSeconds <= 0) endTimer(); else updateTimerDisplay(); }
+        
+        function updateTimerDisplay() {
+            const h = Math.floor(remainingSeconds / 3600), m = Math.floor((remainingSeconds % 3600) / 60), s = remainingSeconds % 60;
+            document.getElementById('timerDisplay').innerText = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            document.getElementById('timerProgressBar').style.width = `${((totalTimerSeconds - remainingSeconds) / totalTimerSeconds) * 100}%`;
+        }
+        
+        async function endTimer() {
+            clearInterval(timerInterval); playBeep();
+            if ("Notification" in window && Notification.permission === 'granted') new Notification("Time's Up! ⏰", { body: `"${pendingActivity.name}" finished.` });
+            else alert(`Time's up! "${pendingActivity.name}" finished.`);
+            
+            await addActivityManual(true);
+
+            document.getElementById('liveTimerCard').style.display = 'none';
+            document.getElementById('activityName').value = '';
+            document.getElementById('activityDuration').value = '0.5';
+            pendingActivity = null;
+        }
+        
+        function cancelTimer() { clearInterval(timerInterval); document.getElementById('liveTimerCard').style.display = 'none'; pendingActivity = null; }
+        
+        function playBeep() {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)(); const osc = ctx.createOscillator(); const gain = ctx.createGain();
+            osc.connect(gain); gain.connect(ctx.destination); osc.type = 'sine'; osc.frequency.value = 800;
+            gain.gain.setValueAtTime(1, ctx.currentTime); osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.8);
+        }
+
+        // --- RENDERING ---
+        function renderAll() { renderTimeline(); renderStats(); renderLog(); renderCalendar(); renderHeatmap(); renderStudyTracker(); }
+
+        function renderTimeline() {
+            const bar = document.getElementById('timelineBar'); bar.innerHTML = ''; let total = 0;
+            activities.forEach(act => {
+                total += act.duration;
+                const b = document.createElement('div'); b.className = `h-full ${categories[act.category].color}`;
+                b.style.width = `${(act.duration / 24) * 100}%`; bar.appendChild(b);
+            });
+            if (total < 24) { const e = document.createElement('div'); e.className = 'h-full bg-gray-100'; e.style.width = `${((24 - total) / 24) * 100}%`; bar.appendChild(e); }
+        }
+
+        function renderStats() {
+            const s = document.getElementById('statsSummary'); s.innerHTML = ''; const t = {};
+            activities.forEach(a => t[a.category] = (t[a.category] || 0) + a.duration);
+            for (let k in categories) {
+                const d = document.createElement('div'); d.className = 'bg-gray-50 p-3 rounded-lg';
+                d.innerHTML = `<div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded-full ${categories[k].color}"></span><span class="text-sm">${categories[k].name}</span></div><p class="text-xl font-bold ${categories[k].text}">${t[k] || 0} <span class="text-sm">hrs</span></p>`;
+                s.appendChild(d);
+            }
+        }
+
+        function renderLog() {
+            const log = document.getElementById('activityLog');
+            if (!activities.length) return log.innerHTML = '<p class="text-gray-400 text-center py-4">No activities yet.</p>';
+            log.innerHTML = '';
+            activities.forEach((act, i) => {
+                const item = document.createElement('div'); item.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg';
+                item.innerHTML = `<div class="flex items-center gap-3"><span class="w-4 h-4 rounded-full ${categories[act.category].color}"></span><div><p class="font-semibold">${act.name}</p><p class="text-xs text-gray-500">${categories[act.category].name}</p></div></div><div class="flex items-center gap-4"><span class="font-medium">${act.duration}h</span><button onclick="deleteActivity(${i})" class="text-red-400 text-sm cursor-pointer">Delete</button></div>`;
+                log.appendChild(item);
+            });
+        }
+
+        function renderStudyTracker() {
+            const list = document.getElementById('subjectList'); 
+            if (!list) return;
+            list.innerHTML = '';
+            if (!studyData.length) return list.innerHTML = '<p class="text-gray-400 text-center py-4">No subjects added yet.</p>';
+            studyData.forEach((sub, i) => {
+                const item = document.createElement('div'); item.className = 'flex flex-col p-4 bg-gray-50 rounded-xl gap-3';
+                item.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="font-bold text-lg">${sub.name}</p>
+                            <p class="text-xs text-gray-500">Today: <span class="font-semibold text-indigo-600">${sub.daily}</span> | Lifetime: <span class="font-semibold">${sub.lifetime}</span></p>
+                        </div>
+                        <button onclick="deleteSubject(${i})" class="bg-red-100 text-red-600 px-2 py-2 rounded-lg text-sm cursor-pointer">X</button>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 mt-2 border-t pt-3">
+                        <select id="studyTimerDur_${i}" class="p-2 border rounded-lg text-sm">
+                            <option value="0.5">30 mins</option>
+                            <option value="1.0">1 hour</option>
+                            <option value="1.5">1.5 hours</option>
+                            <option value="2.0">2 hours</option>
+                        </select>
+                        <button onclick="startSubjectTimer(${i})" class="bg-indigo-600 text-white px-3 py-2 rounded-lg text-sm cursor-pointer font-semibold">Start Timer</button>
+                        
+                        <div class="flex items-center gap-2 ml-auto">
+                            <input type="number" id="studyInput_${i}" min="1" value="1" class="w-16 p-2 border rounded-lg text-sm">
+                            <button onclick="logStudy(${i})" class="bg-green-600 text-white px-3 py-2 rounded-lg text-sm cursor-pointer font-semibold">Log Reading</button>
+                        </div>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        function changeMonth(d) { calDate.setMonth(calDate.getMonth() + d); renderCalendar(); renderHeatmap(); }
+        
+        function renderCalendar() {
+            const grid = document.getElementById('calendarGrid'); grid.innerHTML = '';
+            document.getElementById('calMonthLabel').innerText = calDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            const f = new Date(calDate.getFullYear(), calDate.getMonth(), 1).getDay();
+            const d = new Date(calDate.getFullYear(), calDate.getMonth() + 1, 0).getDate();
+            for (let i = 0; i < f; i++) { const e = document.createElement('div'); e.className = 'aspect-square'; grid.appendChild(e); }
+            for (let day = 1; day <= d; day++) {
+                const ds = getDateString(new Date(calDate.getFullYear(), calDate.getMonth(), day));
+                const acts = history[ds] || []; let h = 0; acts.forEach(a => { if (a.category === 'deep') h += a.duration; });
+                let c = 'bg-gray-100 text-gray-400';
+                if (h > 0 && h < 2) c = 'bg-green-200 text-green-800'; else if (h >= 2 && h < 4) c = 'bg-green-400 text-white'; else if (h >= 4 && h < 6) c = 'bg-green-600 text-white'; else if (h >= 6) c = 'bg-green-800 text-white';
+                const cell = document.createElement('div'); cell.className = `aspect-square rounded-md flex items-center justify-center text-xs font-bold ${c}`; cell.innerText = day; grid.appendChild(cell);
+            }
+        }
+
+        function renderHeatmap() {
+            const grid = document.getElementById('heatmapGrid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            
+            const year = calDate.getFullYear();
+            const month = calDate.getMonth();
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            
+            for (let i = 0; i < firstDay; i++) {
+                const empty = document.createElement('div');
+                empty.className = 'w-full aspect-square';
+                grid.appendChild(empty);
+            }
+            
+            for (let day = 1; day <= daysInMonth; day++) {
+                const ds = getDateString(new Date(year, month, day));
+                const acts = history[ds] || []; 
+                let h = 0; 
+                acts.forEach(a => { if (a.category === 'deep') h += a.duration; });
+                
+                let c = 'bg-gray-100 border border-gray-200';
+                if (h > 0 && h < 2) c = 'bg-green-200';
+                else if (h >= 2 && h < 4) c = 'bg-green-400';
+                else if (h >= 4 && h < 6) c = 'bg-green-600';
+                else if (h >= 6) c = 'bg-green-800';
+                
+                const cell = document.createElement('div');
+                cell.className = `w-full aspect-square rounded-sm ${c}`;
+                cell.title = `${ds}: ${h.toFixed(1)} hrs Deep Work`;
+                grid.appendChild(cell);
+            }
+        }
+    </script>
+</body>
+</html>

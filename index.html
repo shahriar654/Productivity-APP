@@ -42,6 +42,7 @@
                         <select id="occupationInput" class="w-full p-2 border rounded-lg outline-none">
                             <option value="student">Student</option>
                             <option value="programmer">Programmer / Developer</option>
+                            <option value="trader">Trader</option>
                         </select>
                     </div>
                 </div>
@@ -129,9 +130,13 @@
                 </div>
                 <p id="timerActivityName" class="text-xl font-bold mb-3"></p>
                 <div id="timerDisplay" class="text-5xl font-bold font-mono mb-4">00:00:00</div>
-                <div class="w-full h-2 bg-indigo-300 rounded-full overflow-hidden">
+                <div class="w-full h-2 bg-indigo-300 rounded-full overflow-hidden mb-4">
                     <div id="timerProgressBar" class="h-full bg-white" style="width: 0%"></div>
                 </div>
+                <!-- NEW: Stop Alarm Button -->
+                <button id="stopAlarmBtn" onclick="stopAlarm()" class="hidden mt-2 w-full bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold cursor-pointer animate-pulse">
+                    🔔 Stop Alarm
+                </button>
             </div>
 
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
@@ -155,6 +160,7 @@
                     <div>
                         <label class="block text-sm mb-1">Duration (Hours)</label>
                         <input type="number" id="activityDuration" min="0.016" max="24" step="0.016" value="0.5" class="w-full p-2 border rounded-lg outline-none">
+                        <p class="text-xs text-gray-400 mt-1">0.5 = 30 mins, 1.0 = 1 hour</p>
                     </div>
                 </div>
                 <div class="mt-4 flex gap-4">
@@ -193,6 +199,7 @@
         let studyData = [];
         let authMode = 'signup';
         let pendingActivity = null; 
+        let alarmInterval = null; // NEW: For the looping alarm
 
         const categories = {
             sleep: { name: 'Sleep', color: 'bg-blue-500', text: 'text-blue-500' },
@@ -362,6 +369,9 @@
             if (occ === 'student') {
                 insight = "Students have erratic schedules. Cluster 'Deep Work' in 2-hour blocks.";
                 document.getElementById('studyTrackerCard').style.display = 'block';
+            } else if (occ === 'trader') {
+                insight = "Trading requires intense focus before market hours. Schedule 'Deep Work' for analysis.";
+                document.getElementById('studyTrackerCard').style.display = 'none';
             } else {
                 insight = "Developers need flow states. Block 90 mins of uninterrupted 'Deep Work'.";
                 document.getElementById('studyTrackerCard').style.display = 'none';
@@ -416,7 +426,7 @@
             if (isFromTimer && pendingActivity) {
                 name = pendingActivity.name;
                 category = pendingActivity.category;
-                duration = pendingActivity.duration;
+                duration = pendingActivity.duration; 
             } else {
                 name = document.getElementById('activityName').value.trim();
                 category = document.getElementById('activityCategory').value;
@@ -426,7 +436,6 @@
             if (!name) return alert('Enter an activity name.');
 
             try {
-                // Insert with completed: false by default
                 const { data, error } = await sb.from('activities').insert([{ 
                     user_id: currentUser.id, 
                     date: todayKey, 
@@ -444,23 +453,20 @@
             } catch (e) { alert("Error saving activity: " + e.message); }
         }
 
-        // NEW: Toggle Completion Checkbox
         async function toggleComplete(index) {
             const act = activities[index];
             const newStatus = !act.completed;
             
-            // Optimistic UI update (change visually immediately)
             act.completed = newStatus;
             renderLog();
             renderCalendar();
             renderHeatmap();
 
             try {
-                // Save to Supabase
                 await sb.from('activities').update({ completed: newStatus }).eq('id', act.id);
             } catch (e) { 
                 alert("Error updating status: " + e.message);
-                act.completed = !newStatus; // Revert if error
+                act.completed = !newStatus; 
                 renderLog();
                 renderCalendar();
                 renderHeatmap();
@@ -526,6 +532,7 @@
             const name = document.getElementById('activityName').value.trim();
             const category = document.getElementById('activityCategory').value;
             const durationHours = parseFloat(document.getElementById('activityDuration').value);
+            
             if (!name || !durationHours || durationHours <= 0) return alert("Enter name and duration");
             
             pendingActivity = { name, category, duration: durationHours };
@@ -543,16 +550,24 @@
 
         function triggerTimerUI() {
             if ("Notification" in window && Notification.permission === 'default') Notification.requestPermission();
+            
+            // FIXED MATH: Ensure accurate seconds calculation
             totalTimerSeconds = Math.round(pendingActivity.duration * 3600);
             remainingSeconds = totalTimerSeconds;
+            
             document.getElementById('liveTimerCard').style.display = 'block';
+            document.getElementById('stopAlarmBtn').style.display = 'none'; // Hide stop button
             document.getElementById('timerActivityName').innerText = `${pendingActivity.name} (${categories[pendingActivity.category].name})`;
             updateTimerDisplay();
             timerInterval = setInterval(tickTimer, 1000);
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        function tickTimer() { remainingSeconds--; if (remainingSeconds <= 0) endTimer(); else updateTimerDisplay(); }
+        function tickTimer() { 
+            remainingSeconds--; 
+            if (remainingSeconds <= 0) endTimer(); 
+            else updateTimerDisplay(); 
+        }
         
         function updateTimerDisplay() {
             const h = Math.floor(remainingSeconds / 3600), m = Math.floor((remainingSeconds % 3600) / 60), s = remainingSeconds % 60;
@@ -561,24 +576,56 @@
         }
         
         async function endTimer() {
-            clearInterval(timerInterval); playBeep();
-            if ("Notification" in window && Notification.permission === 'granted') new Notification("Time's Up! ⏰", { body: `"${pendingActivity.name}" finished.` });
-            else alert(`Time's up! "${pendingActivity.name}" finished.`);
+            clearInterval(timerInterval); 
+            
+            // NEW: Start looping alarm
+            startAlarm();
+            
+            if ("Notification" in window && Notification.permission === 'granted') {
+                new Notification("Time's Up! ⏰", { body: `"${pendingActivity.name}" finished. Click Stop Alarm.` });
+            }
             
             await addActivityManual(true);
 
+            // Update UI to show it's finished
+            document.getElementById('timerDisplay').innerText = "TIME'S UP!";
+            document.getElementById('timerProgressBar').style.width = '100%';
+        }
+        
+        // NEW: Looping alarm logic
+        function startAlarm() {
+            alarmInterval = setInterval(() => {
+                playBeep();
+            }, 1000); // Beeps every 1 second
+            document.getElementById('stopAlarmBtn').style.display = 'block'; // Show the stop button
+        }
+
+        function stopAlarm() {
+            clearInterval(alarmInterval);
+            document.getElementById('stopAlarmBtn').style.display = 'none';
             document.getElementById('liveTimerCard').style.display = 'none';
             document.getElementById('activityName').value = '';
             document.getElementById('activityDuration').value = '0.5';
             pendingActivity = null;
         }
         
-        function cancelTimer() { clearInterval(timerInterval); document.getElementById('liveTimerCard').style.display = 'none'; pendingActivity = null; }
+        function cancelTimer() { 
+            clearInterval(timerInterval); 
+            document.getElementById('liveTimerCard').style.display = 'none'; 
+            pendingActivity = null; 
+        }
         
         function playBeep() {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)(); const osc = ctx.createOscillator(); const gain = ctx.createGain();
-            osc.connect(gain); gain.connect(ctx.destination); osc.type = 'sine'; osc.frequency.value = 800;
-            gain.gain.setValueAtTime(1, ctx.currentTime); osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.8);
+            const ctx = new (window.AudioContext || window.webkitAudioContext)(); 
+            const osc = ctx.createOscillator(); 
+            const gain = ctx.createGain();
+            osc.connect(gain); 
+            gain.connect(ctx.destination); 
+            osc.type = 'sine'; 
+            osc.frequency.value = 800;
+            gain.gain.setValueAtTime(1, ctx.currentTime); 
+            osc.start(ctx.currentTime); 
+            osc.stop(ctx.currentTime + 0.5); // Beep for half a second
         }
 
         // --- RENDERING ---
@@ -604,7 +651,6 @@
             }
         }
 
-        // UPDATED: Now includes checkbox and line-through styling
         function renderLog() {
             const log = document.getElementById('activityLog');
             if (!activities.length) return log.innerHTML = '<p class="text-gray-400 text-center py-4">No activities yet.</p>';
@@ -614,6 +660,7 @@
                 item.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg';
                 
                 const textStrike = act.completed ? 'line-through text-gray-400' : 'text-gray-800';
+                const displayHours = act.duration.toFixed(2);
                 
                 item.innerHTML = `
                     <div class="flex items-center gap-3 flex-grow">
@@ -625,7 +672,7 @@
                         </div>
                     </div>
                     <div class="flex items-center gap-4 flex-shrink-0 ml-2">
-                        <span class="font-medium text-gray-700 text-sm">${act.duration}h</span>
+                        <span class="font-medium text-gray-700 text-sm">${displayHours}h</span>
                         <button onclick="deleteActivity(${i})" class="text-red-400 hover:text-red-600 text-sm cursor-pointer">Delete</button>
                     </div>`;
                 log.appendChild(item);
@@ -668,7 +715,6 @@
 
         function changeMonth(d) { calDate.setMonth(calDate.getMonth() + d); renderCalendar(); renderHeatmap(); }
         
-        // NEW HELPER: Calculate completion percentage
         function getCompletionPercent(dayActs) {
             if (!dayActs || dayActs.length === 0) return 0;
             const completed = dayActs.filter(a => a.completed).length;
@@ -684,8 +730,6 @@
             for (let day = 1; day <= d; day++) {
                 const ds = getDateString(new Date(calDate.getFullYear(), calDate.getMonth(), day));
                 const acts = history[ds] || []; 
-                
-                // Use completion percentage instead of deep work hours
                 const percent = getCompletionPercent(acts);
                 
                 let c = 'bg-gray-100 text-gray-400';
@@ -717,8 +761,6 @@
             for (let day = 1; day <= daysInMonth; day++) {
                 const ds = getDateString(new Date(year, month, day));
                 const acts = history[ds] || []; 
-                
-                // Use completion percentage instead of deep work hours
                 const percent = getCompletionPercent(acts);
                 
                 let c = 'bg-gray-100 border border-gray-200';

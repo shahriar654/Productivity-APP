@@ -133,7 +133,6 @@
                 <div class="w-full h-2 bg-indigo-300 rounded-full overflow-hidden mb-4">
                     <div id="timerProgressBar" class="h-full bg-white" style="width: 0%"></div>
                 </div>
-                <!-- NEW: Stop Alarm Button -->
                 <button id="stopAlarmBtn" onclick="stopAlarm()" class="hidden mt-2 w-full bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold cursor-pointer animate-pulse">
                     🔔 Stop Alarm
                 </button>
@@ -172,7 +171,8 @@
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-xl font-bold">Activity Log</h2>
-                    <button onclick="clearDay()" class="text-sm text-red-500 cursor-pointer">Clear Day</button>
+                    <!-- Changed text to clarify it saves progress first -->
+                    <button onclick="clearDay()" class="text-sm text-red-500 cursor-pointer">Save Progress & Clear Day</button>
                 </div>
                 <div id="activityLog" class="space-y-3"></div>
             </div>
@@ -194,12 +194,13 @@
         let userProfile = null;
         let activities = []; 
         let history = {};    
+        let dailyProgress = {}; // NEW: Stores saved daily scores
         let todayKey = "";
         let calDate = new Date();
         let studyData = [];
         let authMode = 'signup';
         let pendingActivity = null; 
-        let alarmInterval = null; // NEW: For the looping alarm
+        let alarmInterval = null; 
 
         const categories = {
             sleep: { name: 'Sleep', color: 'bg-blue-500', text: 'text-blue-500' },
@@ -357,6 +358,7 @@
             generateInsight();
             await fetchActivities();
             await fetchSubjects();
+            await fetchDailyProgress(); // NEW: Fetch saved scores
             renderAll();
         }
 
@@ -393,6 +395,16 @@
                 });
                 activities = history[todayKey] || [];
             } catch (e) { console.error("Fetch activities error:", e); history = {}; activities = []; }
+        }
+
+        // NEW: Fetch saved daily scores
+        async function fetchDailyProgress() {
+            try {
+                const { data, error } = await sb.from('daily_progress').select('*').eq('user_id', currentUser.id);
+                if (error) throw error;
+                dailyProgress = {};
+                data.forEach(p => { dailyProgress[p.date] = p.completion_percentage; });
+            } catch (e) { console.error("Fetch progress error:", e); dailyProgress = {}; }
         }
 
         async function fetchSubjects() {
@@ -482,11 +494,28 @@
             } catch (e) { alert("Error deleting: " + e.message); }
         }
 
+        // FIXED: Save progress before clearing activities
         async function clearDay() {
-            if (!confirm('Clear all activities for today?')) return;
+            if (!confirm('This will save your final score to the calendar and clear the log for a fresh start. Continue?')) return;
             try {
+                // 1. Calculate final completion percentage
+                const finalPercent = getCompletionPercent(activities, todayKey);
+                
+                // 2. Save to daily_progress table
+                if (activities.length > 0) {
+                    await sb.from('daily_progress').upsert({
+                        user_id: currentUser.id,
+                        date: todayKey,
+                        completion_percentage: Math.round(finalPercent)
+                    });
+                }
+                
+                // 3. Delete activities
                 for (let act of activities) { await sb.from('activities').delete().eq('id', act.id); }
                 activities = []; history[todayKey] = [];
+                
+                // 4. Fetch progress so UI updates correctly
+                await fetchDailyProgress();
                 renderAll();
             } catch (e) { alert("Error clearing day: " + e.message); }
         }
@@ -551,12 +580,11 @@
         function triggerTimerUI() {
             if ("Notification" in window && Notification.permission === 'default') Notification.requestPermission();
             
-            // FIXED MATH: Ensure accurate seconds calculation
             totalTimerSeconds = Math.round(pendingActivity.duration * 3600);
             remainingSeconds = totalTimerSeconds;
             
             document.getElementById('liveTimerCard').style.display = 'block';
-            document.getElementById('stopAlarmBtn').style.display = 'none'; // Hide stop button
+            document.getElementById('stopAlarmBtn').style.display = 'none'; 
             document.getElementById('timerActivityName').innerText = `${pendingActivity.name} (${categories[pendingActivity.category].name})`;
             updateTimerDisplay();
             timerInterval = setInterval(tickTimer, 1000);
@@ -577,8 +605,6 @@
         
         async function endTimer() {
             clearInterval(timerInterval); 
-            
-            // NEW: Start looping alarm
             startAlarm();
             
             if ("Notification" in window && Notification.permission === 'granted') {
@@ -587,17 +613,15 @@
             
             await addActivityManual(true);
 
-            // Update UI to show it's finished
             document.getElementById('timerDisplay').innerText = "TIME'S UP!";
             document.getElementById('timerProgressBar').style.width = '100%';
         }
         
-        // NEW: Looping alarm logic
         function startAlarm() {
             alarmInterval = setInterval(() => {
                 playBeep();
-            }, 1000); // Beeps every 1 second
-            document.getElementById('stopAlarmBtn').style.display = 'block'; // Show the stop button
+            }, 1000); 
+            document.getElementById('stopAlarmBtn').style.display = 'block'; 
         }
 
         function stopAlarm() {
@@ -625,7 +649,7 @@
             osc.frequency.value = 800;
             gain.gain.setValueAtTime(1, ctx.currentTime); 
             osc.start(ctx.currentTime); 
-            osc.stop(ctx.currentTime + 0.5); // Beep for half a second
+            osc.stop(ctx.currentTime + 0.5); 
         }
 
         // --- RENDERING ---
@@ -715,10 +739,19 @@
 
         function changeMonth(d) { calDate.setMonth(calDate.getMonth() + d); renderCalendar(); renderHeatmap(); }
         
-        function getCompletionPercent(dayActs) {
-            if (!dayActs || dayActs.length === 0) return 0;
-            const completed = dayActs.filter(a => a.completed).length;
-            return (completed / dayActs.length) * 100;
+        // FIXED: Now checks saved scores if activities are deleted
+        function getCompletionPercent(dayActs, dateStr) {
+            // If there are live activities for this day, calculate live
+            if (dayActs && dayActs.length > 0) {
+                const completed = dayActs.filter(a => a.completed).length;
+                return (completed / dayActs.length) * 100;
+            }
+            // If no activities, but we saved a score for this day, use the saved score
+            if (dailyProgress[dateStr] !== undefined) {
+                return dailyProgress[dateStr];
+            }
+            // Otherwise, 0
+            return 0;
         }
 
         function renderCalendar() {
@@ -730,7 +763,7 @@
             for (let day = 1; day <= d; day++) {
                 const ds = getDateString(new Date(calDate.getFullYear(), calDate.getMonth(), day));
                 const acts = history[ds] || []; 
-                const percent = getCompletionPercent(acts);
+                const percent = getCompletionPercent(acts, ds); // Pass date string
                 
                 let c = 'bg-gray-100 text-gray-400';
                 if (percent > 0 && percent <= 25) c = 'bg-green-200 text-green-800'; 
@@ -761,7 +794,7 @@
             for (let day = 1; day <= daysInMonth; day++) {
                 const ds = getDateString(new Date(year, month, day));
                 const acts = history[ds] || []; 
-                const percent = getCompletionPercent(acts);
+                const percent = getCompletionPercent(acts, ds); // Pass date string
                 
                 let c = 'bg-gray-100 border border-gray-200';
                 if (percent > 0 && percent <= 25) c = 'bg-green-200';

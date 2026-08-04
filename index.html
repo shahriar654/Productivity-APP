@@ -205,7 +205,7 @@
         let pendingActivity = null; 
         let alarmInterval = null; 
         let isPaused = false; 
-        let audioCtx = null; // FIXED: Single Audio Context
+        let audioCtx = null; 
 
         const categories = {
             sleep: { name: 'Sleep', color: 'bg-blue-500', text: 'text-blue-500' },
@@ -452,6 +452,7 @@
             if (!name) return alert('Enter an activity name.');
 
             try {
+                // created_at is automatically set by Supabase database default
                 const { data, error } = await sb.from('activities').insert([{ 
                     user_id: currentUser.id, 
                     date: todayKey, 
@@ -579,7 +580,6 @@
         function triggerTimerUI() {
             if ("Notification" in window && Notification.permission === 'default') Notification.requestPermission();
             
-            // FIXED: Clear any existing alarms before starting a new timer
             if (alarmInterval) {
                 clearInterval(alarmInterval);
                 alarmInterval = null;
@@ -646,9 +646,8 @@
         }
         
         function startAlarm() {
-            // FIXED: Ensure only one interval is running
             if (alarmInterval) clearInterval(alarmInterval);
-            playBeep(); // Play immediately
+            playBeep(); 
             alarmInterval = setInterval(() => {
                 playBeep();
             }, 1000); 
@@ -669,7 +668,7 @@
         
         function cancelTimer() { 
             clearInterval(timerInterval); 
-            if (alarmInterval) { // Also clear alarm if canceling
+            if (alarmInterval) { 
                 clearInterval(alarmInterval);
                 alarmInterval = null;
             }
@@ -678,13 +677,11 @@
             pendingActivity = null; 
         }
         
-        // FIXED: Reuse a single AudioContext to prevent browser piling up sounds
         function playBeep() {
             try {
                 if (!audioCtx) {
                     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 }
-                // Resume context if it was suspended by the browser
                 if (audioCtx.state === 'suspended') {
                     audioCtx.resume();
                 }
@@ -702,15 +699,6 @@
                 console.error("Audio error:", e);
             }
         }
-
-        // FIXED: Stop alarm if user switches away from tab to prevent background piling
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden && alarmInterval) {
-                // Optional: keep playing in background, but for now, let's clear it if they leave 
-                // to prevent the "surprise sound" when they come back.
-                // If you want it to keep playing in the background, remove this block.
-            }
-        });
 
         // --- RENDERING ---
         function renderAll() { renderTimeline(); renderStats(); renderLog(); renderCalendar(); renderHeatmap(); renderStudyTracker(); }
@@ -746,13 +734,27 @@
                 const textStrike = act.completed ? 'line-through text-gray-400' : 'text-gray-800';
                 const displayHours = act.duration.toFixed(2);
                 
+                // NEW: Calculate Start and End Time
+                let timeStr = '';
+                if (act.created_at) {
+                    try {
+                        const endTime = new Date(act.created_at);
+                        const startTime = new Date(endTime.getTime() - (act.duration * 3600 * 1000));
+                        const fmt = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        timeStr = `${fmt(startTime)} - ${fmt(endTime)}`;
+                    } catch (e) { timeStr = ''; }
+                }
+                
                 item.innerHTML = `
                     <div class="flex items-center gap-3 flex-grow">
                         <input type="checkbox" ${act.completed ? 'checked' : ''} onchange="toggleComplete(${i})" class="w-5 h-5 cursor-pointer accent-indigo-600 flex-shrink-0">
                         <span class="w-4 h-4 rounded-full ${categories[act.category].color} flex-shrink-0"></span>
                         <div class="flex-grow min-w-0">
                             <p class="font-semibold ${textStrike} truncate">${act.name}</p>
-                            <p class="text-xs text-gray-500">${categories[act.category].name}</p>
+                            <p class="text-xs text-gray-500">
+                                ${categories[act.category].name} 
+                                ${timeStr ? `<span class="text-indigo-500 font-medium">| ${timeStr}</span>` : ''}
+                            </p>
                         </div>
                     </div>
                     <div class="flex items-center gap-4 flex-shrink-0 ml-2">

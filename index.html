@@ -85,7 +85,7 @@
                 <div id="subjectList" class="space-y-4"></div>
             </div>
 
-            <!-- Monthly Calendar -->
+            <!-- Monthly Calendar (With integrated Green Light logic) -->
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-xl font-bold">📅 Monthly Productivity</h2>
@@ -99,20 +99,14 @@
                     <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
                 </div>
                 <div id="calendarGrid" class="grid grid-cols-7 gap-2"></div>
-            </div>
-
-            <!-- Heatmap -->
-            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
-                <h2 class="text-xl font-bold mb-4">📊 See Your Most Productive or Less Productive Day</h2>
-                <p class="text-xs text-gray-400 mb-4">*Green is based on how many activities you check off (complete) each day.</p>
-                <div id="heatmapGrid" class="grid grid-cols-7 gap-1.5 mb-4"></div>
-                <div class="mt-4 flex items-center justify-end gap-2 text-xs text-gray-400">
+                <!-- Moved Legend Here -->
+                <div class="mt-6 flex items-center justify-end gap-2 text-xs text-gray-400">
                     <span>Less</span>
-                    <div class="w-3 h-3 rounded-sm bg-gray-100 border border-gray-200"></div>
-                    <div class="w-3 h-3 rounded-sm bg-green-200"></div>
-                    <div class="w-3 h-3 rounded-sm bg-green-400"></div>
-                    <div class="w-3 h-3 rounded-sm bg-green-600"></div>
-                    <div class="w-3 h-3 rounded-sm bg-green-800"></div>
+                    <div class="w-4 h-4 rounded-md bg-gray-100 border border-gray-200"></div>
+                    <div class="w-4 h-4 rounded-md bg-green-200"></div>
+                    <div class="w-4 h-4 rounded-md bg-green-400"></div>
+                    <div class="w-4 h-4 rounded-md bg-green-600"></div>
+                    <div class="w-4 h-4 rounded-md bg-green-800"></div>
                     <span>More</span>
                 </div>
             </div>
@@ -145,7 +139,6 @@
             <!-- Log an Activity Form -->
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
                 <h2 class="text-xl font-bold mb-4">Log or Schedule an Activity</h2>
-                <!-- Added Date Picker -->
                 <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
                     <div class="sm:col-span-2">
                         <label class="block text-sm mb-1">Activity</label>
@@ -212,7 +205,7 @@
         let history = {};    
         let dailyProgress = {}; 
         let todayKey = getDateString(new Date());
-        let viewDateKey = getDateString(new Date()); // NEW: Tracks which day's log we are looking at
+        let viewDateKey = getDateString(new Date()); 
         let calDate = new Date();
         let studyData = [];
         let authMode = 'signup';
@@ -232,14 +225,13 @@
 
         function getDateString(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 
-        // Set default form times
         function setDefaultTimes() {
             const now = new Date();
-            const later = new Date(now.getTime() + 60 * 60000); // 1 hour later
+            const later = new Date(now.getTime() + 60 * 60000); 
             const formatTime = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
             document.getElementById('activityStartTime').value = formatTime(now);
             document.getElementById('activityEndTime').value = formatTime(later);
-            document.getElementById('activityDate').value = viewDateKey; // Default to the day we are viewing
+            document.getElementById('activityDate').value = viewDateKey; 
         }
 
         function showDashboard() {
@@ -375,7 +367,7 @@
         // --- DASHBOARD LOGIC ---
         async function loadDashboard() {
             todayKey = getDateString(new Date());
-            viewDateKey = todayKey; // Always start by viewing today
+            viewDateKey = todayKey; 
             calDate = new Date();
             
             document.getElementById('studyTrackerCard').style.display = 'none';
@@ -384,7 +376,7 @@
             document.getElementById('welcomeHeader').innerText = `Welcome, ${displayName.split(' ')[0]}!`;
             
             document.getElementById('currentDate').innerText = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-            document.getElementById('viewDate').value = viewDateKey; // Set the view date picker
+            document.getElementById('viewDate').value = viewDateKey; 
             
             setDefaultTimes(); 
             generateInsight();
@@ -425,7 +417,7 @@
                     if (!history[act.date]) history[act.date] = [];
                     history[act.date].push(act);
                 });
-                activities = history[viewDateKey] || []; // Load activities for the day we are viewing
+                activities = history[viewDateKey] || []; 
             } catch (e) { console.error("Fetch activities error:", e); history = {}; activities = []; }
         }
 
@@ -471,11 +463,11 @@
                 category = pendingActivity.category;
                 duration = pendingActivity.duration; 
                 endTimeISO = new Date().toISOString(); 
-                selectedDate = pendingActivity.date || viewDateKey; // Use timer's date if set
+                selectedDate = pendingActivity.date || viewDateKey; 
             } else {
                 name = document.getElementById('activityName').value.trim();
                 category = document.getElementById('activityCategory').value;
-                selectedDate = document.getElementById('activityDate').value; // Get date from picker
+                selectedDate = document.getElementById('activityDate').value; 
                 const startTimeStr = document.getElementById('activityStartTime').value;
                 const endTimeStr = document.getElementById('activityEndTime').value;
                 
@@ -492,7 +484,7 @@
             try {
                 const { data, error } = await sb.from('activities').insert([{ 
                     user_id: currentUser.id, 
-                    date: selectedDate, // Save to the selected date!
+                    date: selectedDate, 
                     name, 
                     category, 
                     duration,
@@ -502,17 +494,14 @@
                 
                 if (error) throw error;
                 
-                // Add to history object
                 if (!history[selectedDate]) history[selectedDate] = [];
                 history[selectedDate].push(data);
                 
-                // If the added activity is for the day we are currently viewing, update the UI
                 if (selectedDate === viewDateKey) {
                     activities = history[viewDateKey];
                     renderAll();
                 } else {
-                    renderCalendar(); // Update calendar to show the newly scheduled day
-                    renderHeatmap();
+                    renderCalendar(); 
                 }
 
                 if (!isFromTimer) {
@@ -529,7 +518,6 @@
             act.completed = newStatus;
             renderLog();
             renderCalendar();
-            renderHeatmap();
 
             try {
                 await sb.from('activities').update({ completed: newStatus }).eq('id', act.id);
@@ -538,7 +526,6 @@
                 act.completed = !newStatus; 
                 renderLog();
                 renderCalendar();
-                renderHeatmap();
             }
         }
 
@@ -624,7 +611,6 @@
             
             if (durationHours <= 0) return alert("End Time must be after Start Time.");
             
-            // Save the date so when the timer finishes, it logs to the correct day
             pendingActivity = { name, category, duration: durationHours, date: selectedDate };
             triggerTimerUI();
         }
@@ -634,7 +620,6 @@
             const durationDropdown = document.getElementById(`studyTimerDur_${index}`);
             const durationHours = parseFloat(durationDropdown.value);
             
-            // Subject timers always log to today
             pendingActivity = { name: `Study: ${sub.name}`, category: 'deep', duration: durationHours, date: todayKey };
             triggerTimerUI();
         }
@@ -763,7 +748,8 @@
         }
 
         // --- RENDERING ---
-        function renderAll() { renderTimeline(); renderStats(); renderLog(); renderCalendar(); renderHeatmap(); renderStudyTracker(); }
+        // REMOVED renderHeatmap from here
+        function renderAll() { renderTimeline(); renderStats(); renderLog(); renderCalendar(); renderStudyTracker(); }
 
         function renderTimeline() {
             const bar = document.getElementById('timelineBar'); bar.innerHTML = ''; let total = 0;
@@ -787,7 +773,6 @@
 
         function renderLog() {
             const log = document.getElementById('activityLog');
-            // Update the label to show which day we are looking at
             document.getElementById('logDateLabel').innerText = `(${viewDateKey})`;
 
             if (!activities.length) return log.innerHTML = '<p class="text-gray-400 text-center py-4">No activities scheduled for this day.</p>';
@@ -863,7 +848,7 @@
             });
         }
 
-        function changeMonth(d) { calDate.setMonth(calDate.getMonth() + d); renderCalendar(); renderHeatmap(); }
+        function changeMonth(d) { calDate.setMonth(calDate.getMonth() + d); renderCalendar(); }
         
         function getCompletionPercent(dayActs, dateStr) {
             if (dayActs && dayActs.length > 0) {
@@ -895,56 +880,19 @@
                 
                 const cell = document.createElement('div'); cell.className = `aspect-square rounded-md flex items-center justify-center text-xs font-bold ${c} cursor-pointer`; 
                 cell.innerText = day; 
-                cell.onclick = () => changeViewDate(ds); // Click calendar to change view date
+                cell.onclick = () => changeViewDate(ds); 
                 grid.appendChild(cell);
             }
         }
 
-        function renderHeatmap() {
-            const grid = document.getElementById('heatmapGrid');
-            if (!grid) return;
-            grid.innerHTML = '';
-            
-            const year = calDate.getFullYear();
-            const month = calDate.getMonth();
-            const firstDay = new Date(year, month, 1).getDay();
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            
-            for (let i = 0; i < firstDay; i++) {
-                const empty = document.createElement('div');
-                empty.className = 'w-full aspect-square';
-                grid.appendChild(empty);
-            }
-            
-            for (let day = 1; day <= daysInMonth; day++) {
-                const ds = getDateString(new Date(year, month, day));
-                const acts = history[ds] || []; 
-                const percent = getCompletionPercent(acts, ds); 
-                
-                let c = 'bg-gray-100 border border-gray-200';
-                if (percent > 0 && percent <= 25) c = 'bg-green-200';
-                else if (percent > 25 && percent <= 50) c = 'bg-green-400';
-                else if (percent > 50 && percent < 100) c = 'bg-green-600';
-                else if (percent === 100) c = 'bg-green-800';
-                
-                const cell = document.createElement('div');
-                cell.className = `w-full aspect-square rounded-sm ${c} cursor-pointer`;
-                cell.title = `${ds}: ${Math.round(percent)}% Completed`;
-                cell.onclick = () => changeViewDate(ds); // Click heatmap to change view date
-                grid.appendChild(cell);
-            }
-        }
-
-        // NEW: Function to change which day's activities we are looking at
         function changeViewDate(dateStr) {
             viewDateKey = dateStr;
             document.getElementById('viewDate').value = viewDateKey;
-            document.getElementById('activityDate').value = viewDateKey; // Sync the add activity date too
+            document.getElementById('activityDate').value = viewDateKey; 
             activities = history[viewDateKey] || [];
             renderAll();
         }
 
-        // Event listener for the View Date picker in the Activity Log
         document.addEventListener('DOMContentLoaded', () => {
             const viewDateInput = document.getElementById('viewDate');
             if (viewDateInput) {

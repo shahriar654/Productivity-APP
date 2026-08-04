@@ -123,10 +123,14 @@
                 <div class="mt-6 grid grid-cols-2 sm:grid-cols-3 gap-4" id="statsSummary"></div>
             </div>
 
+            <!-- LIVE TIMER CARD -->
             <div id="liveTimerCard" class="bg-indigo-600 text-white p-6 rounded-2xl shadow-sm mb-8 text-center" style="display: none;">
                 <div class="flex justify-between items-center mb-2">
                     <h2 class="text-lg font-bold opacity-90">⏱️ Timer Running</h2>
-                    <button onclick="cancelTimer()" class="text-xs bg-indigo-500 px-3 py-1 rounded-full cursor-pointer">Cancel</button>
+                    <div class="flex gap-2">
+                        <button id="pauseResumeBtn" onclick="togglePauseResume()" class="text-xs bg-indigo-500 hover:bg-indigo-400 px-3 py-1 rounded-full cursor-pointer">Pause</button>
+                        <button onclick="cancelTimer()" class="text-xs bg-red-500 hover:bg-red-400 px-3 py-1 rounded-full cursor-pointer">Cancel</button>
+                    </div>
                 </div>
                 <p id="timerActivityName" class="text-xl font-bold mb-3"></p>
                 <div id="timerDisplay" class="text-5xl font-bold font-mono mb-4">00:00:00</div>
@@ -171,7 +175,6 @@
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-xl font-bold">Activity Log</h2>
-                    <!-- Changed text to clarify it saves progress first -->
                     <button onclick="clearDay()" class="text-sm text-red-500 cursor-pointer">Save Progress & Clear Day</button>
                 </div>
                 <div id="activityLog" class="space-y-3"></div>
@@ -194,13 +197,15 @@
         let userProfile = null;
         let activities = []; 
         let history = {};    
-        let dailyProgress = {}; // NEW: Stores saved daily scores
+        let dailyProgress = {}; 
         let todayKey = "";
         let calDate = new Date();
         let studyData = [];
         let authMode = 'signup';
         let pendingActivity = null; 
         let alarmInterval = null; 
+        let isPaused = false; 
+        let audioCtx = null; // FIXED: Single Audio Context
 
         const categories = {
             sleep: { name: 'Sleep', color: 'bg-blue-500', text: 'text-blue-500' },
@@ -358,7 +363,7 @@
             generateInsight();
             await fetchActivities();
             await fetchSubjects();
-            await fetchDailyProgress(); // NEW: Fetch saved scores
+            await fetchDailyProgress(); 
             renderAll();
         }
 
@@ -397,7 +402,6 @@
             } catch (e) { console.error("Fetch activities error:", e); history = {}; activities = []; }
         }
 
-        // NEW: Fetch saved daily scores
         async function fetchDailyProgress() {
             try {
                 const { data, error } = await sb.from('daily_progress').select('*').eq('user_id', currentUser.id);
@@ -494,14 +498,11 @@
             } catch (e) { alert("Error deleting: " + e.message); }
         }
 
-        // FIXED: Save progress before clearing activities
         async function clearDay() {
             if (!confirm('This will save your final score to the calendar and clear the log for a fresh start. Continue?')) return;
             try {
-                // 1. Calculate final completion percentage
                 const finalPercent = getCompletionPercent(activities, todayKey);
                 
-                // 2. Save to daily_progress table
                 if (activities.length > 0) {
                     await sb.from('daily_progress').upsert({
                         user_id: currentUser.id,
@@ -510,11 +511,9 @@
                     });
                 }
                 
-                // 3. Delete activities
                 for (let act of activities) { await sb.from('activities').delete().eq('id', act.id); }
                 activities = []; history[todayKey] = [];
                 
-                // 4. Fetch progress so UI updates correctly
                 await fetchDailyProgress();
                 renderAll();
             } catch (e) { alert("Error clearing day: " + e.message); }
@@ -580,15 +579,43 @@
         function triggerTimerUI() {
             if ("Notification" in window && Notification.permission === 'default') Notification.requestPermission();
             
+            // FIXED: Clear any existing alarms before starting a new timer
+            if (alarmInterval) {
+                clearInterval(alarmInterval);
+                alarmInterval = null;
+            }
+
+            isPaused = false; 
             totalTimerSeconds = Math.round(pendingActivity.duration * 3600);
             remainingSeconds = totalTimerSeconds;
             
             document.getElementById('liveTimerCard').style.display = 'block';
-            document.getElementById('stopAlarmBtn').style.display = 'none'; 
+            document.getElementById('stopAlarmBtn').style.display = 'none';
+            
+            const prBtn = document.getElementById('pauseResumeBtn');
+            prBtn.innerText = 'Pause';
+            prBtn.className = 'text-xs bg-indigo-500 hover:bg-indigo-400 px-3 py-1 rounded-full cursor-pointer';
+            prBtn.style.display = 'inline-block';
+            
             document.getElementById('timerActivityName').innerText = `${pendingActivity.name} (${categories[pendingActivity.category].name})`;
             updateTimerDisplay();
             timerInterval = setInterval(tickTimer, 1000);
             window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function togglePauseResume() {
+            const btn = document.getElementById('pauseResumeBtn');
+            if (isPaused) {
+                isPaused = false;
+                btn.innerText = 'Pause';
+                btn.className = 'text-xs bg-indigo-500 hover:bg-indigo-400 px-3 py-1 rounded-full cursor-pointer';
+                timerInterval = setInterval(tickTimer, 1000);
+            } else {
+                isPaused = true;
+                btn.innerText = 'Resume';
+                btn.className = 'text-xs bg-yellow-500 hover:bg-yellow-400 text-gray-900 px-3 py-1 rounded-full cursor-pointer';
+                clearInterval(timerInterval);
+            }
         }
 
         function tickTimer() { 
@@ -605,6 +632,7 @@
         
         async function endTimer() {
             clearInterval(timerInterval); 
+            document.getElementById('pauseResumeBtn').style.display = 'none';
             startAlarm();
             
             if ("Notification" in window && Notification.permission === 'granted') {
@@ -618,6 +646,9 @@
         }
         
         function startAlarm() {
+            // FIXED: Ensure only one interval is running
+            if (alarmInterval) clearInterval(alarmInterval);
+            playBeep(); // Play immediately
             alarmInterval = setInterval(() => {
                 playBeep();
             }, 1000); 
@@ -625,7 +656,10 @@
         }
 
         function stopAlarm() {
-            clearInterval(alarmInterval);
+            if (alarmInterval) {
+                clearInterval(alarmInterval);
+                alarmInterval = null;
+            }
             document.getElementById('stopAlarmBtn').style.display = 'none';
             document.getElementById('liveTimerCard').style.display = 'none';
             document.getElementById('activityName').value = '';
@@ -635,22 +669,48 @@
         
         function cancelTimer() { 
             clearInterval(timerInterval); 
+            if (alarmInterval) { // Also clear alarm if canceling
+                clearInterval(alarmInterval);
+                alarmInterval = null;
+            }
+            isPaused = false;
             document.getElementById('liveTimerCard').style.display = 'none'; 
             pendingActivity = null; 
         }
         
+        // FIXED: Reuse a single AudioContext to prevent browser piling up sounds
         function playBeep() {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)(); 
-            const osc = ctx.createOscillator(); 
-            const gain = ctx.createGain();
-            osc.connect(gain); 
-            gain.connect(ctx.destination); 
-            osc.type = 'sine'; 
-            osc.frequency.value = 800;
-            gain.gain.setValueAtTime(1, ctx.currentTime); 
-            osc.start(ctx.currentTime); 
-            osc.stop(ctx.currentTime + 0.5); 
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                // Resume context if it was suspended by the browser
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+
+                const osc = audioCtx.createOscillator(); 
+                const gain = audioCtx.createGain();
+                osc.connect(gain); 
+                gain.connect(audioCtx.destination); 
+                osc.type = 'sine'; 
+                osc.frequency.value = 800;
+                gain.gain.setValueAtTime(1, audioCtx.currentTime); 
+                osc.start(audioCtx.currentTime); 
+                osc.stop(audioCtx.currentTime + 0.5); 
+            } catch(e) {
+                console.error("Audio error:", e);
+            }
         }
+
+        // FIXED: Stop alarm if user switches away from tab to prevent background piling
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && alarmInterval) {
+                // Optional: keep playing in background, but for now, let's clear it if they leave 
+                // to prevent the "surprise sound" when they come back.
+                // If you want it to keep playing in the background, remove this block.
+            }
+        });
 
         // --- RENDERING ---
         function renderAll() { renderTimeline(); renderStats(); renderLog(); renderCalendar(); renderHeatmap(); renderStudyTracker(); }
@@ -739,18 +799,14 @@
 
         function changeMonth(d) { calDate.setMonth(calDate.getMonth() + d); renderCalendar(); renderHeatmap(); }
         
-        // FIXED: Now checks saved scores if activities are deleted
         function getCompletionPercent(dayActs, dateStr) {
-            // If there are live activities for this day, calculate live
             if (dayActs && dayActs.length > 0) {
                 const completed = dayActs.filter(a => a.completed).length;
                 return (completed / dayActs.length) * 100;
             }
-            // If no activities, but we saved a score for this day, use the saved score
             if (dailyProgress[dateStr] !== undefined) {
                 return dailyProgress[dateStr];
             }
-            // Otherwise, 0
             return 0;
         }
 
@@ -763,7 +819,7 @@
             for (let day = 1; day <= d; day++) {
                 const ds = getDateString(new Date(calDate.getFullYear(), calDate.getMonth(), day));
                 const acts = history[ds] || []; 
-                const percent = getCompletionPercent(acts, ds); // Pass date string
+                const percent = getCompletionPercent(acts, ds); 
                 
                 let c = 'bg-gray-100 text-gray-400';
                 if (percent > 0 && percent <= 25) c = 'bg-green-200 text-green-800'; 
@@ -794,7 +850,7 @@
             for (let day = 1; day <= daysInMonth; day++) {
                 const ds = getDateString(new Date(year, month, day));
                 const acts = history[ds] || []; 
-                const percent = getCompletionPercent(acts, ds); // Pass date string
+                const percent = getCompletionPercent(acts, ds); 
                 
                 let c = 'bg-gray-100 border border-gray-200';
                 if (percent > 0 && percent <= 25) c = 'bg-green-200';

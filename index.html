@@ -142,10 +142,11 @@
                 </button>
             </div>
 
+            <!-- Log an Activity Form -->
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
-                <h2 class="text-xl font-bold mb-4">Log an Activity</h2>
-                <!-- CHANGED: Added Start Time and End Time pickers -->
-                <div class="grid grid-cols-1 sm:grid-cols-5 gap-4">
+                <h2 class="text-xl font-bold mb-4">Log or Schedule an Activity</h2>
+                <!-- Added Date Picker -->
+                <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
                     <div class="sm:col-span-2">
                         <label class="block text-sm mb-1">Activity</label>
                         <input type="text" id="activityName" placeholder="Coding" class="w-full p-2 border rounded-lg outline-none">
@@ -162,6 +163,10 @@
                         </select>
                     </div>
                     <div>
+                        <label class="block text-sm mb-1">Date</label>
+                        <input type="date" id="activityDate" class="w-full p-2 border rounded-lg outline-none">
+                    </div>
+                    <div>
                         <label class="block text-sm mb-1">Start Time</label>
                         <input type="time" id="activityStartTime" class="w-full p-2 border rounded-lg outline-none">
                     </div>
@@ -172,14 +177,18 @@
                 </div>
                 <div class="mt-4 flex gap-4">
                     <button onclick="startTimer()" class="flex-1 bg-indigo-600 text-white py-2 rounded-lg font-semibold cursor-pointer">Start Timer</button>
-                    <button onclick="addActivityManual(false)" class="flex-1 bg-gray-200 py-2 rounded-lg font-semibold cursor-pointer">Add Manually</button>
+                    <button onclick="addActivityManual(false)" class="flex-1 bg-gray-200 py-2 rounded-lg font-semibold cursor-pointer">Add to Log</button>
                 </div>
             </div>
 
+            <!-- Activity Log -->
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-xl font-bold">Activity Log</h2>
-                    <button onclick="clearDay()" class="text-sm text-red-500 cursor-pointer">Save Progress & Clear Day</button>
+                    <h2 class="text-xl font-bold">Activity Log <span id="logDateLabel" class="text-sm font-normal text-gray-400 ml-2"></span></h2>
+                    <div class="flex gap-4 items-center">
+                        <input type="date" id="viewDate" class="text-sm p-1 border rounded-lg outline-none cursor-pointer">
+                        <button onclick="clearDay()" class="text-sm text-red-500 cursor-pointer">Save Progress & Clear Day</button>
+                    </div>
                 </div>
                 <div id="activityLog" class="space-y-3"></div>
             </div>
@@ -202,7 +211,8 @@
         let activities = []; 
         let history = {};    
         let dailyProgress = {}; 
-        let todayKey = "";
+        let todayKey = getDateString(new Date());
+        let viewDateKey = getDateString(new Date()); // NEW: Tracks which day's log we are looking at
         let calDate = new Date();
         let studyData = [];
         let authMode = 'signup';
@@ -222,13 +232,14 @@
 
         function getDateString(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 
-        // NEW: Set default start/end times to current time and +1 hour
+        // Set default form times
         function setDefaultTimes() {
             const now = new Date();
             const later = new Date(now.getTime() + 60 * 60000); // 1 hour later
             const formatTime = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
             document.getElementById('activityStartTime').value = formatTime(now);
             document.getElementById('activityEndTime').value = formatTime(later);
+            document.getElementById('activityDate').value = viewDateKey; // Default to the day we are viewing
         }
 
         function showDashboard() {
@@ -364,6 +375,7 @@
         // --- DASHBOARD LOGIC ---
         async function loadDashboard() {
             todayKey = getDateString(new Date());
+            viewDateKey = todayKey; // Always start by viewing today
             calDate = new Date();
             
             document.getElementById('studyTrackerCard').style.display = 'none';
@@ -372,8 +384,9 @@
             document.getElementById('welcomeHeader').innerText = `Welcome, ${displayName.split(' ')[0]}!`;
             
             document.getElementById('currentDate').innerText = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+            document.getElementById('viewDate').value = viewDateKey; // Set the view date picker
             
-            setDefaultTimes(); // Set default times for the time picker
+            setDefaultTimes(); 
             generateInsight();
             await fetchActivities();
             await fetchSubjects();
@@ -412,7 +425,7 @@
                     if (!history[act.date]) history[act.date] = [];
                     history[act.date].push(act);
                 });
-                activities = history[todayKey] || [];
+                activities = history[viewDateKey] || []; // Load activities for the day we are viewing
             } catch (e) { console.error("Fetch activities error:", e); history = {}; activities = []; }
         }
 
@@ -451,36 +464,35 @@
 
         // --- ACTIVITIES ---
         async function addActivityManual(isFromTimer) {
-            let name, category, duration, endTimeISO;
+            let name, category, duration, endTimeISO, selectedDate;
 
             if (isFromTimer && pendingActivity) {
                 name = pendingActivity.name;
                 category = pendingActivity.category;
                 duration = pendingActivity.duration; 
-                endTimeISO = new Date().toISOString(); // When the timer finishes
+                endTimeISO = new Date().toISOString(); 
+                selectedDate = pendingActivity.date || viewDateKey; // Use timer's date if set
             } else {
                 name = document.getElementById('activityName').value.trim();
                 category = document.getElementById('activityCategory').value;
+                selectedDate = document.getElementById('activityDate').value; // Get date from picker
                 const startTimeStr = document.getElementById('activityStartTime').value;
                 const endTimeStr = document.getElementById('activityEndTime').value;
                 
-                if (!name || !startTimeStr || !endTimeStr) return alert('Enter name, start time, and end time.');
+                if (!name || !startTimeStr || !endTimeStr || !selectedDate) return alert('Please enter name, date, start time, and end time.');
                 
-                // Calculate duration from the time pickers
-                const today = new Date();
-                const startDate = new Date(today.toDateString() + ' ' + startTimeStr);
-                const endDate = new Date(today.toDateString() + ' ' + endTimeStr);
-                duration = (endDate - startDate) / (1000 * 60 * 60); // Convert ms to hours
+                const startDate = new Date(`${selectedDate}T${startTimeStr}`);
+                const endDate = new Date(`${selectedDate}T${endTimeStr}`);
+                duration = (endDate - startDate) / (1000 * 60 * 60); 
                 
                 if (duration <= 0) return alert('End Time must be after Start Time.');
-                endTimeISO = endDate.toISOString(); // Save the exact End Time
+                endTimeISO = endDate.toISOString(); 
             }
 
             try {
-                // Insert into DB, explicitly passing created_at to match the End Time
                 const { data, error } = await sb.from('activities').insert([{ 
                     user_id: currentUser.id, 
-                    date: todayKey, 
+                    date: selectedDate, // Save to the selected date!
                     name, 
                     category, 
                     duration,
@@ -489,12 +501,23 @@
                 }]).select().single();
                 
                 if (error) throw error;
-                activities.push(data);
-                history[todayKey] = activities;
-                renderAll();
+                
+                // Add to history object
+                if (!history[selectedDate]) history[selectedDate] = [];
+                history[selectedDate].push(data);
+                
+                // If the added activity is for the day we are currently viewing, update the UI
+                if (selectedDate === viewDateKey) {
+                    activities = history[viewDateKey];
+                    renderAll();
+                } else {
+                    renderCalendar(); // Update calendar to show the newly scheduled day
+                    renderHeatmap();
+                }
+
                 if (!isFromTimer) {
                     document.getElementById('activityName').value = '';
-                    setDefaultTimes(); // Reset the time pickers
+                    setDefaultTimes();
                 }
             } catch (e) { alert("Error saving activity: " + e.message); }
         }
@@ -531,18 +554,18 @@
         async function clearDay() {
             if (!confirm('This will save your final score to the calendar and clear the log for a fresh start. Continue?')) return;
             try {
-                const finalPercent = getCompletionPercent(activities, todayKey);
+                const finalPercent = getCompletionPercent(activities, viewDateKey);
                 
                 if (activities.length > 0) {
                     await sb.from('daily_progress').upsert({
                         user_id: currentUser.id,
-                        date: todayKey,
+                        date: viewDateKey,
                         completion_percentage: Math.round(finalPercent)
                     });
                 }
                 
                 for (let act of activities) { await sb.from('activities').delete().eq('id', act.id); }
-                activities = []; history[todayKey] = [];
+                activities = []; history[viewDateKey] = [];
                 
                 await fetchDailyProgress();
                 renderAll();
@@ -589,20 +612,20 @@
         function startTimer() {
             const name = document.getElementById('activityName').value.trim();
             const category = document.getElementById('activityCategory').value;
+            const selectedDate = document.getElementById('activityDate').value;
             const startTimeStr = document.getElementById('activityStartTime').value;
             const endTimeStr = document.getElementById('activityEndTime').value;
             
-            if (!name || !startTimeStr || !endTimeStr) return alert("Enter name, start time, and end time.");
+            if (!name || !startTimeStr || !endTimeStr || !selectedDate) return alert("Enter name, date, start time, and end time.");
             
-            // Calculate duration from time pickers for the timer
-            const today = new Date();
-            const startDate = new Date(today.toDateString() + ' ' + startTimeStr);
-            const endDate = new Date(today.toDateString() + ' ' + endTimeStr);
+            const startDate = new Date(`${selectedDate}T${startTimeStr}`);
+            const endDate = new Date(`${selectedDate}T${endTimeStr}`);
             const durationHours = (endDate - startDate) / (1000 * 60 * 60);
             
             if (durationHours <= 0) return alert("End Time must be after Start Time.");
             
-            pendingActivity = { name, category, duration: durationHours };
+            // Save the date so when the timer finishes, it logs to the correct day
+            pendingActivity = { name, category, duration: durationHours, date: selectedDate };
             triggerTimerUI();
         }
 
@@ -611,7 +634,8 @@
             const durationDropdown = document.getElementById(`studyTimerDur_${index}`);
             const durationHours = parseFloat(durationDropdown.value);
             
-            pendingActivity = { name: `Study: ${sub.name}`, category: 'deep', duration: durationHours };
+            // Subject timers always log to today
+            pendingActivity = { name: `Study: ${sub.name}`, category: 'deep', duration: durationHours, date: todayKey };
             triggerTimerUI();
         }
 
@@ -763,7 +787,10 @@
 
         function renderLog() {
             const log = document.getElementById('activityLog');
-            if (!activities.length) return log.innerHTML = '<p class="text-gray-400 text-center py-4">No activities yet.</p>';
+            // Update the label to show which day we are looking at
+            document.getElementById('logDateLabel').innerText = `(${viewDateKey})`;
+
+            if (!activities.length) return log.innerHTML = '<p class="text-gray-400 text-center py-4">No activities scheduled for this day.</p>';
             log.innerHTML = '';
             activities.forEach((act, i) => {
                 const item = document.createElement('div'); 
@@ -772,7 +799,6 @@
                 const textStrike = act.completed ? 'line-through text-gray-400' : 'text-gray-800';
                 const displayHours = act.duration.toFixed(2);
                 
-                // Calculate Start and End Time to display
                 let timeStr = '';
                 if (act.created_at) {
                     try {
@@ -867,7 +893,10 @@
                 else if (percent > 50 && percent < 100) c = 'bg-green-600 text-white'; 
                 else if (percent === 100) c = 'bg-green-800 text-white';
                 
-                const cell = document.createElement('div'); cell.className = `aspect-square rounded-md flex items-center justify-center text-xs font-bold ${c}`; cell.innerText = day; grid.appendChild(cell);
+                const cell = document.createElement('div'); cell.className = `aspect-square rounded-md flex items-center justify-center text-xs font-bold ${c} cursor-pointer`; 
+                cell.innerText = day; 
+                cell.onclick = () => changeViewDate(ds); // Click calendar to change view date
+                grid.appendChild(cell);
             }
         }
 
@@ -899,11 +928,32 @@
                 else if (percent === 100) c = 'bg-green-800';
                 
                 const cell = document.createElement('div');
-                cell.className = `w-full aspect-square rounded-sm ${c}`;
+                cell.className = `w-full aspect-square rounded-sm ${c} cursor-pointer`;
                 cell.title = `${ds}: ${Math.round(percent)}% Completed`;
+                cell.onclick = () => changeViewDate(ds); // Click heatmap to change view date
                 grid.appendChild(cell);
             }
         }
+
+        // NEW: Function to change which day's activities we are looking at
+        function changeViewDate(dateStr) {
+            viewDateKey = dateStr;
+            document.getElementById('viewDate').value = viewDateKey;
+            document.getElementById('activityDate').value = viewDateKey; // Sync the add activity date too
+            activities = history[viewDateKey] || [];
+            renderAll();
+        }
+
+        // Event listener for the View Date picker in the Activity Log
+        document.addEventListener('DOMContentLoaded', () => {
+            const viewDateInput = document.getElementById('viewDate');
+            if (viewDateInput) {
+                viewDateInput.addEventListener('change', (e) => {
+                    changeViewDate(e.target.value);
+                });
+            }
+        });
+
     </script>
 </body>
 </html>

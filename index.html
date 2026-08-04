@@ -144,7 +144,8 @@
 
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
                 <h2 class="text-xl font-bold mb-4">Log an Activity</h2>
-                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <!-- CHANGED: Added Start Time and End Time pickers -->
+                <div class="grid grid-cols-1 sm:grid-cols-5 gap-4">
                     <div class="sm:col-span-2">
                         <label class="block text-sm mb-1">Activity</label>
                         <input type="text" id="activityName" placeholder="Coding" class="w-full p-2 border rounded-lg outline-none">
@@ -161,9 +162,12 @@
                         </select>
                     </div>
                     <div>
-                        <label class="block text-sm mb-1">Duration (Hours)</label>
-                        <input type="number" id="activityDuration" min="0.016" max="24" step="0.016" value="0.5" class="w-full p-2 border rounded-lg outline-none">
-                        <p class="text-xs text-gray-400 mt-1">0.5 = 30 mins, 1.0 = 1 hour</p>
+                        <label class="block text-sm mb-1">Start Time</label>
+                        <input type="time" id="activityStartTime" class="w-full p-2 border rounded-lg outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm mb-1">End Time</label>
+                        <input type="time" id="activityEndTime" class="w-full p-2 border rounded-lg outline-none">
                     </div>
                 </div>
                 <div class="mt-4 flex gap-4">
@@ -217,6 +221,15 @@
         };
 
         function getDateString(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+
+        // NEW: Set default start/end times to current time and +1 hour
+        function setDefaultTimes() {
+            const now = new Date();
+            const later = new Date(now.getTime() + 60 * 60000); // 1 hour later
+            const formatTime = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+            document.getElementById('activityStartTime').value = formatTime(now);
+            document.getElementById('activityEndTime').value = formatTime(later);
+        }
 
         function showDashboard() {
             document.getElementById('profileScreen').style.display = 'none';
@@ -360,6 +373,7 @@
             
             document.getElementById('currentDate').innerText = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
             
+            setDefaultTimes(); // Set default times for the time picker
             generateInsight();
             await fetchActivities();
             await fetchSubjects();
@@ -437,36 +451,51 @@
 
         // --- ACTIVITIES ---
         async function addActivityManual(isFromTimer) {
-            let name, category, duration;
+            let name, category, duration, endTimeISO;
 
             if (isFromTimer && pendingActivity) {
                 name = pendingActivity.name;
                 category = pendingActivity.category;
                 duration = pendingActivity.duration; 
+                endTimeISO = new Date().toISOString(); // When the timer finishes
             } else {
                 name = document.getElementById('activityName').value.trim();
                 category = document.getElementById('activityCategory').value;
-                duration = parseFloat(document.getElementById('activityDuration').value);
+                const startTimeStr = document.getElementById('activityStartTime').value;
+                const endTimeStr = document.getElementById('activityEndTime').value;
+                
+                if (!name || !startTimeStr || !endTimeStr) return alert('Enter name, start time, and end time.');
+                
+                // Calculate duration from the time pickers
+                const today = new Date();
+                const startDate = new Date(today.toDateString() + ' ' + startTimeStr);
+                const endDate = new Date(today.toDateString() + ' ' + endTimeStr);
+                duration = (endDate - startDate) / (1000 * 60 * 60); // Convert ms to hours
+                
+                if (duration <= 0) return alert('End Time must be after Start Time.');
+                endTimeISO = endDate.toISOString(); // Save the exact End Time
             }
 
-            if (!name) return alert('Enter an activity name.');
-
             try {
-                // created_at is automatically set by Supabase database default
+                // Insert into DB, explicitly passing created_at to match the End Time
                 const { data, error } = await sb.from('activities').insert([{ 
                     user_id: currentUser.id, 
                     date: todayKey, 
                     name, 
                     category, 
                     duration,
-                    completed: false 
+                    completed: false,
+                    created_at: endTimeISO 
                 }]).select().single();
                 
                 if (error) throw error;
                 activities.push(data);
                 history[todayKey] = activities;
                 renderAll();
-                if (!isFromTimer) { document.getElementById('activityName').value = ''; document.getElementById('activityDuration').value = '0.5'; }
+                if (!isFromTimer) {
+                    document.getElementById('activityName').value = '';
+                    setDefaultTimes(); // Reset the time pickers
+                }
             } catch (e) { alert("Error saving activity: " + e.message); }
         }
 
@@ -560,9 +589,18 @@
         function startTimer() {
             const name = document.getElementById('activityName').value.trim();
             const category = document.getElementById('activityCategory').value;
-            const durationHours = parseFloat(document.getElementById('activityDuration').value);
+            const startTimeStr = document.getElementById('activityStartTime').value;
+            const endTimeStr = document.getElementById('activityEndTime').value;
             
-            if (!name || !durationHours || durationHours <= 0) return alert("Enter name and duration");
+            if (!name || !startTimeStr || !endTimeStr) return alert("Enter name, start time, and end time.");
+            
+            // Calculate duration from time pickers for the timer
+            const today = new Date();
+            const startDate = new Date(today.toDateString() + ' ' + startTimeStr);
+            const endDate = new Date(today.toDateString() + ' ' + endTimeStr);
+            const durationHours = (endDate - startDate) / (1000 * 60 * 60);
+            
+            if (durationHours <= 0) return alert("End Time must be after Start Time.");
             
             pendingActivity = { name, category, duration: durationHours };
             triggerTimerUI();
@@ -662,7 +700,7 @@
             document.getElementById('stopAlarmBtn').style.display = 'none';
             document.getElementById('liveTimerCard').style.display = 'none';
             document.getElementById('activityName').value = '';
-            document.getElementById('activityDuration').value = '0.5';
+            setDefaultTimes();
             pendingActivity = null;
         }
         
@@ -734,7 +772,7 @@
                 const textStrike = act.completed ? 'line-through text-gray-400' : 'text-gray-800';
                 const displayHours = act.duration.toFixed(2);
                 
-                // NEW: Calculate Start and End Time
+                // Calculate Start and End Time to display
                 let timeStr = '';
                 if (act.created_at) {
                     try {
